@@ -1,0 +1,46 @@
+version: "3.9"
+services:
+  api:
+    build: ./backend
+    env_file:
+      - config.env
+    depends_on:
+      - mailhog
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  web:
+    build: ./frontend
+    env_file:
+      - config.env
+    command: ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "80"]
+    depends_on:
+      - api
+    ports:
+      - "5173:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "8025:8025"   # UI web
+      - "1025:1025"   # SMTP
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "8025"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  data:
