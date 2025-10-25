@@ -11,7 +11,9 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage --config vitest.config.coverage.ts",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "copy-locales": "node scripts/copy-locales.js",
+    "dev:with-locales": "npm run copy-locales && npm run dev"
   },
   "dependencies": {
     "clsx": "^2.0.0",

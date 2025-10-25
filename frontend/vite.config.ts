@@ -20,6 +20,7 @@ export default defineConfig({
       },
     },
   },
+  publicDir: 'public',
   preview: {
     host: true,
     port: 80,

@@ -9,9 +9,12 @@ import { Modal } from '@/components/ui/Modal';
 import { apiPost } from '@/utils/api';
 import { useToast } from '@/components/ui/Toast';
 import { proxmoxConfigManager } from '@/utils/proxmox';
+import { useTranslation } from '@/hooks/useTranslation';
+import { storage } from '@/utils/storage';
 
 export function Settings() {
   const { success, error, warning } = useToast();
+  const { t } = useTranslation();
 
   // Configuration API
   const [apiConfig, setApiConfig] = useState({
@@ -218,12 +221,13 @@ export function Settings() {
       console.log('📊 Données Proxmox récupérées via backend:', data);
 
       if (data.success) {
-        // Sauvegarder les données réelles dans localStorage
-        localStorage.setItem('proxmoxNodes', JSON.stringify(data.nodes || []));
-        localStorage.setItem('proxmoxVMs', JSON.stringify(data.vms || []));
-        localStorage.setItem('proxmoxLXC', JSON.stringify(data.lxc || []));
+        // Sauvegarder la configuration Proxmox (essentielle)
+        storage.setProxmoxConfig(proxmoxConfig);
 
-        console.log('✅ Données Proxmox réelles sauvegardées:', {
+        // Sauvegarder les données Proxmox avec cache intelligent
+        storage.setProxmoxData(data);
+
+        console.log('✅ Données Proxmox réelles sauvegardées avec cache intelligent:', {
           nodes: data.nodes?.length || 0,
           vms: data.vms?.length || 0,
           lxc: data.lxc?.length || 0

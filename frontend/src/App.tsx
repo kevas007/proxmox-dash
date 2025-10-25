@@ -17,6 +17,7 @@ import { Backups } from './pages/Backups';
 import { useSSE } from './hooks/useSSE';
 import { useAuth } from './utils/auth';
 import { apiGet, Alert } from './utils/api';
+import TranslationTest from './components/TranslationTest';
 
 
 function App() {
@@ -137,6 +138,8 @@ function App() {
         return <Backups />;
       case 'tasks':
         return <TasksLogs />;
+      case 'translation-test':
+        return <TranslationTest />;
       default:
         return <Overview />;
     }

@@ -26,6 +26,8 @@ import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
 import { useAuth, hasRole } from '@/utils/auth';
 import { LoginModal } from './LoginModal';
+import { useTranslation } from '@/hooks/useTranslation';
+import LanguageSelector from './LanguageSelector';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -36,20 +38,22 @@ interface LayoutProps {
   isDark: boolean;
 }
 
+// Les sections seront maintenant traduites dynamiquement
 const sections = [
-  { id: 'overview', label: 'Vue d\'ensemble', icon: Activity },
-  { id: 'nodes', label: 'Nœuds', icon: Server },
-  { id: 'vms', label: 'VMs', icon: Monitor },
-  { id: 'lxc', label: 'LXC', icon: Container },
-  { id: 'docker', label: 'Docker', icon: Container },
-  { id: 'apps', label: 'Applications', icon: Activity },
-  { id: 'databases', label: 'Bases de données', icon: Database },
-  { id: 'storage', label: 'Stockage', icon: HardDrive },
-  { id: 'network', label: 'Réseau', icon: Network },
-  { id: 'backups', label: 'Sauvegardes', icon: Archive },
-  { id: 'tasks', label: 'Tâches & Logs', icon: FileText },
-  { id: 'users', label: 'Utilisateurs', icon: Users, adminOnly: true },
-  { id: 'settings', label: 'Paramètres', icon: Settings },
+  { id: 'overview', translationKey: 'navigation.overview', icon: Activity },
+  { id: 'nodes', translationKey: 'navigation.nodes', icon: Server },
+  { id: 'vms', translationKey: 'navigation.vms', icon: Monitor },
+  { id: 'lxc', translationKey: 'navigation.lxc', icon: Container },
+  { id: 'docker', translationKey: 'navigation.docker', icon: Container },
+  { id: 'apps', translationKey: 'navigation.apps', icon: Activity },
+  { id: 'databases', translationKey: 'navigation.databases', icon: Database },
+  { id: 'storage', translationKey: 'navigation.storage', icon: HardDrive },
+  { id: 'network', translationKey: 'navigation.network', icon: Network },
+  { id: 'backups', translationKey: 'navigation.backups', icon: Archive },
+  { id: 'tasks', translationKey: 'navigation.tasks', icon: FileText },
+  { id: 'translation-test', translationKey: 'navigation.translation_test', icon: Activity },
+  { id: 'users', translationKey: 'navigation.users', icon: Users, adminOnly: true },
+  { id: 'settings', translationKey: 'navigation.settings', icon: Settings },
 ];
 
 export function Layout({
@@ -63,6 +67,7 @@ export function Layout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const { isAuthenticated, user, logout } = useAuth();
+  const { t } = useTranslation();
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
@@ -77,15 +82,15 @@ export function Layout({
             >
               {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 flex items-center justify-center">
+            <div className="flex items-center space-x-4">
+              <div className="w-21 h-20 flex items-center justify-center">
                 <img
                   src="/nexboard-logo.png"
                   alt="NexBoard Logo"
-                  className="w-8 h-8 object-contain"
+                  className="w-21 h-20 object-contain"
                 />
               </div>
-              <span className="font-semibold text-slate-900 dark:text-slate-100">
+              <span className="font-semibold text-slate-900 dark:text-slate-100 text-xl">
                 NexBoard
               </span>
             </div>
@@ -111,6 +116,9 @@ export function Layout({
                 </Badge>
               )}
             </button>
+
+            {/* Sélecteur de langue */}
+            <LanguageSelector />
 
             {/* Toggle theme */}
             <button
@@ -179,7 +187,7 @@ export function Layout({
                   isAuthenticated ? 'bg-green-500' : 'bg-slate-400'
                 )} />
                 <span className="text-xs text-slate-600 dark:text-slate-400">
-                  {isAuthenticated ? 'Authentifié' : 'Lecture seule'}
+                  {isAuthenticated ? t('common.authenticated') : t('common.read_only')}
                 </span>
               </div>
             </div>
@@ -209,7 +217,7 @@ export function Layout({
                     )}
                   >
                     <Icon className="h-5 w-5 flex-shrink-0" />
-                    <span className="font-medium">{section.label}</span>
+                    <span className="font-medium">{t(section.translationKey)}</span>
                     {section.adminOnly && (
                       <Shield className="h-3 w-3 text-slate-400 ml-auto" />
                     )}

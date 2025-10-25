@@ -501,18 +501,36 @@ func (h *Handlers) fetchProxmoxNodes(url, token string) ([]map[string]interface{
 		return nil, err
 	}
 
-	// Compter les VMs et LXC par nœud
+	// Compter et collecter les VMs et LXC par nœud
 	nodeCounts := make(map[string]map[string]int)
+	nodeVMs := make(map[string][]map[string]interface{})
+	nodeLXC := make(map[string][]map[string]interface{})
+
 	for _, item := range result.Data {
 		if item["type"] == "vm" || item["type"] == "lxc" {
 			nodeName := item["node"].(string)
 			if nodeCounts[nodeName] == nil {
 				nodeCounts[nodeName] = map[string]int{"vms": 0, "lxc": 0}
 			}
+
+			// Créer un objet VM/LXC simplifié
+			vmLxcInfo := map[string]interface{}{
+				"id":     item["vmid"],
+				"name":   item["name"],
+				"status": item["status"],
+				"type":   item["type"],
+			}
+
 			if item["type"] == "vm" {
 				nodeCounts[nodeName]["vms"]++
+				nodeVMs[nodeName] = append(nodeVMs[nodeName], vmLxcInfo)
+				fmt.Printf("🖥️ VM found on %s: %s (ID: %v, Status: %v)\n",
+					nodeName, item["name"], item["vmid"], item["status"])
 			} else if item["type"] == "lxc" {
 				nodeCounts[nodeName]["lxc"]++
+				nodeLXC[nodeName] = append(nodeLXC[nodeName], vmLxcInfo)
+				fmt.Printf("🐳 LXC found on %s: %s (ID: %v, Status: %v)\n",
+					nodeName, item["name"], item["vmid"], item["status"])
 			}
 		}
 	}
@@ -564,6 +582,8 @@ func (h *Handlers) fetchProxmoxNodes(url, token string) ([]map[string]interface{
 				"diskinfo":     nodeMetrics["diskinfo"],
 				"vms_count":    vmsCount,
 				"lxc_count":    lxcCount,
+				"vms":          nodeVMs[nodeName], // Liste des VMs sur ce nœud
+				"lxc":          nodeLXC[nodeName], // Liste des LXC sur ce nœud
 			}
 			nodes = append(nodes, node)
 		}
@@ -791,20 +811,24 @@ func (h *Handlers) fetchNodeMetrics(url, token, nodeName string) (map[string]int
 		}
 
 		// Memory usage - utilisation mémoire en pourcentage
-		if mem, ok := data["mem"].(float64); ok {
-			if maxmem, ok := data["maxmem"].(float64); ok && maxmem > 0 {
-				metrics["memory_usage"] = int((mem / maxmem) * 100)
-			} else {
-				metrics["memory_usage"] = int(mem * 100)
+		if memoryMap, ok := data["memory"].(map[string]interface{}); ok {
+			if used, ok := memoryMap["used"].(float64); ok {
+				if total, ok := memoryMap["total"].(float64); ok && total > 0 {
+					metrics["memory_usage"] = int((used / total) * 100)
+					fmt.Printf("📊 Memory calculation: used=%.2fGB, total=%.2fGB, usage=%d%%\n",
+						used/1024/1024/1024, total/1024/1024/1024, int((used/total)*100))
+				}
 			}
 		}
 
 		// Disk usage - utilisation disque en pourcentage
-		if disk, ok := data["disk"].(float64); ok {
-			if maxdisk, ok := data["maxdisk"].(float64); ok && maxdisk > 0 {
-				metrics["disk_usage"] = int((disk / maxdisk) * 100)
-			} else {
-				metrics["disk_usage"] = int(disk * 100)
+		if rootfsMap, ok := data["rootfs"].(map[string]interface{}); ok {
+			if used, ok := rootfsMap["used"].(float64); ok {
+				if total, ok := rootfsMap["total"].(float64); ok && total > 0 {
+					metrics["disk_usage"] = int((used / total) * 100)
+					fmt.Printf("📊 Disk calculation: used=%.2fGB, total=%.2fGB, usage=%d%%\n",
+						used/1024/1024/1024, total/1024/1024/1024, int((used/total)*100))
+				}
 			}
 		}
 
@@ -819,9 +843,9 @@ func (h *Handlers) fetchNodeMetrics(url, token, nodeName string) (map[string]int
 		}
 
 		// Load average
-		if loadavg, ok := data["loadavg"].([]interface{}); ok && len(loadavg) >= 3 {
+		if loadavg, ok := data["loadavg"].([]float64); ok && len(loadavg) >= 3 {
 			metrics["loadavg"] = fmt.Sprintf("%.2f, %.2f, %.2f",
-				loadavg[0].(float64), loadavg[1].(float64), loadavg[2].(float64))
+				loadavg[0], loadavg[1], loadavg[2])
 		}
 
 		// Kernel version
@@ -835,22 +859,28 @@ func (h *Handlers) fetchNodeMetrics(url, token, nodeName string) (map[string]int
 		}
 
 		// Memory info (format: used/total)
-		if mem, ok := data["mem"].(float64); ok {
-			if maxmem, ok := data["maxmem"].(float64); ok {
-				metrics["meminfo"] = fmt.Sprintf("%.2f GiB sur %.2f GiB",
-					mem/1024/1024/1024, maxmem/1024/1024/1024)
+		if memoryMap, ok := data["memory"].(map[string]interface{}); ok {
+			if used, ok := memoryMap["used"].(float64); ok {
+				if total, ok := memoryMap["total"].(float64); ok {
+					metrics["meminfo"] = fmt.Sprintf("%.2f GiB sur %.2f GiB",
+						used/1024/1024/1024, total/1024/1024/1024)
+				}
 			}
 		}
 
 		// Swap info
-		if swap, ok := data["swap"].(float64); ok {
-			if maxswap, ok := data["maxswap"].(float64); ok {
-				swapPercent := 0.0
-				if maxswap > 0 {
-					swapPercent = (swap / maxswap) * 100
+		if swapMap, ok := data["swap"].(map[string]interface{}); ok {
+			if used, ok := swapMap["used"].(float64); ok {
+				if total, ok := swapMap["total"].(float64); ok {
+					swapPercent := 0.0
+					if total > 0 {
+						swapPercent = (used / total) * 100
+					}
+					metrics["swapinfo"] = fmt.Sprintf("%.2f%% (%.2f MiB sur %.2f GiB)",
+						swapPercent, used/1024/1024, total/1024/1024/1024)
+					fmt.Printf("📊 Swap calculation: used=%.2fGB, total=%.2fGB, usage=%.2f%%\n",
+						used/1024/1024/1024, total/1024/1024/1024, swapPercent)
 				}
-				metrics["swapinfo"] = fmt.Sprintf("%.2f%% (%.2f MiB sur %.2f GiB)",
-					swapPercent, swap/1024/1024, maxswap/1024/1024/1024)
 			}
 		}
 	}

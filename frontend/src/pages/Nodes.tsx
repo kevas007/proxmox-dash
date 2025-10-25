@@ -590,6 +590,88 @@ export function Nodes() {
                 </div>
               </div>
 
+              {/* VMs et LXC associés */}
+              {(node.vms && node.vms.length > 0) || (node.lxc && node.lxc.length > 0) ? (
+                <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg space-y-3">
+                  <div className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Machines virtuelles et conteneurs
+                  </div>
+
+                  {/* VMs */}
+                  {node.vms && node.vms.length > 0 && (
+                    <div>
+                      <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
+                        🖥️ VMs ({node.vms.length})
+                      </div>
+                      <div className="space-y-1">
+                        {node.vms.map((vm: any) => (
+                          <div key={vm.id} className="flex items-center justify-between text-xs bg-white dark:bg-slate-700 p-2 rounded">
+                            <div className="flex items-center space-x-2">
+                              <div className={`w-2 h-2 rounded-full ${
+                                vm.status === 'running' ? 'bg-green-500' :
+                                vm.status === 'stopped' ? 'bg-red-500' : 'bg-yellow-500'
+                              }`} />
+                              <span className="font-medium">{vm.name}</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-slate-500 dark:text-slate-400">ID: {vm.id}</span>
+                              <span className={`px-2 py-1 rounded text-xs ${
+                                vm.status === 'running' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' :
+                                vm.status === 'stopped' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' :
+                                'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
+                              }`}>
+                                {vm.status}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* LXC */}
+                  {node.lxc && node.lxc.length > 0 && (
+                    <div>
+                      <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
+                        🐳 LXC ({node.lxc.length})
+                      </div>
+                      <div className="space-y-1">
+                        {node.lxc.map((lxc: any) => (
+                          <div key={lxc.id} className="flex items-center justify-between text-xs bg-white dark:bg-slate-700 p-2 rounded">
+                            <div className="flex items-center space-x-2">
+                              <div className={`w-2 h-2 rounded-full ${
+                                lxc.status === 'running' ? 'bg-green-500' :
+                                lxc.status === 'stopped' ? 'bg-red-500' : 'bg-yellow-500'
+                              }`} />
+                              <span className="font-medium">{lxc.name}</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-slate-500 dark:text-slate-400">ID: {lxc.id}</span>
+                              <span className={`px-2 py-1 rounded text-xs ${
+                                lxc.status === 'running' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' :
+                                lxc.status === 'stopped' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' :
+                                'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
+                              }`}>
+                                {lxc.status}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg">
+                  <div className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    Machines virtuelles et conteneurs
+                  </div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    Aucune VM ou LXC sur ce nœud
+                  </div>
+                </div>
+              )}
+
               {/* Statut du dépôt */}
               <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg space-y-2">
                 <div className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300">
