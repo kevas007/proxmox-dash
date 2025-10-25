@@ -1,6 +1,8 @@
-# ProxmoxDash - Dashboard de monitoring Proxmox/Docker
+# NexBoard - Dashboard de monitoring Proxmox/Docker
 
 Un dashboard moderne pour le monitoring de clusters Proxmox, conteneurs Docker et applications, avec notifications temps réel et système d'alertes par email.
+
+**Développé par [kevas007](https://github.com/kevas007)**
 
 ## 🚀 Fonctionnalités
 
@@ -44,8 +46,8 @@ Un dashboard moderne pour le monitoring de clusters Proxmox, conteneurs Docker e
 
 1. **Cloner le projet**
 ```bash
-git clone https://github.com/VOTRE-USERNAME/proxmox-dashboard.git
-cd proxmox-dashboard
+git clone https://github.com/kevas007/proxmox-dash.git
+cd proxmox-dash
 ```
 
 2. **Créer le répertoire de données**
@@ -242,8 +244,8 @@ Nous accueillons les contributions ! Voir notre [Guide de Contribution](CONTRIBU
 1. **Fork le projet** sur GitHub
 2. **Clone votre fork** :
    ```bash
-   git clone https://github.com/VOTRE-USERNAME/proxmox-dashboard.git
-   cd proxmox-dashboard
+   git clone https://github.com/VOTRE-USERNAME/proxmox-dash.git
+   cd proxmox-dash
    ```
 3. **Créer une branche** :
    ```bash
@@ -274,6 +276,8 @@ Nous accueillons les contributions ! Voir notre [Guide de Contribution](CONTRIBU
 
 Ce projet suit le [Code de Conduite Contributor Covenant](CODE_OF_CONDUCT.md). En participant, vous acceptez de respecter ce code.
 
+**Contact :** Pour signaler des violations du code de conduite, contactez [kevassiobo@gmail.com](mailto:kevassiobo@gmail.com)
+
 ## 📝 License
 
 Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de détails.
@@ -287,4 +291,8 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de 
 
 ---
 
-**ProxmoxDash** - Dashboard de monitoring moderne pour infrastructures Proxmox et Docker.
+**NexBoard** - Dashboard de monitoring moderne pour infrastructures Proxmox et Docker.
+
+---
+
+**Développé avec ❤️ par [kevas007](https://github.com/kevas007)**
