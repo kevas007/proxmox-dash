@@ -66,7 +66,7 @@ func Load() *Config {
 			TLS:      getEnvAsBool("SMTP_TLS", true),
 		},
 		Security: SecurityConfig{
-			JWTSecret: getEnv("JWT_SECRET", "your-secret-key"),
+			JWTSecret: getEnv("JWT_SECRET", ""),
 			CORS: CORSConfig{
 				AllowedOrigins: []string{getEnv("CORS_ORIGINS", "*")},
 				AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},

@@ -42,14 +42,17 @@ interface StoragePool {
 
 export function Storage() {
   const [pools, setPools] = useState<StoragePool[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const { success, error, warning } = useToast();
 
-  // Données mockées
-  useEffect(() => {
+  // Charger les données Storage depuis localStorage
+  const loadStorageData = () => {
+    try {
+      // Pour l'instant, Storage n'est pas intégré avec Proxmox
+      // Charger les données mockées
     const mockPools: StoragePool[] = [
       {
         id: 'local-lvm',
@@ -116,8 +119,21 @@ export function Storage() {
       }
     ];
 
-    setPools(mockPools);
-    setLoading(false);
+      setPools(mockPools);
+      setLoading(false);
+    } catch (err) {
+      console.error('❌ Erreur lors du chargement des données Storage:', err);
+      setLoading(false);
+    }
+  };
+
+  // Message d'information pour Storage
+  useEffect(() => {
+    warning('Information', 'Les données de stockage ne sont pas encore intégrées avec Proxmox. Cette section affiche des données de démonstration.');
+  }, []);
+
+  useEffect(() => {
+    loadStorageData();
   }, []);
 
   const getTypeIcon = (type: string) => {

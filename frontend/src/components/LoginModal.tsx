@@ -192,7 +192,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setLoginData({ username: 'admin', password: 'admin123' })}
+                    onClick={() => setLoginData({ username: 'admin', password: '' })}
                   >
                     Utiliser
                   </Button>
@@ -206,7 +206,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setLoginData({ username: 'demo', password: 'demo123' })}
+                    onClick={() => setLoginData({ username: 'demo', password: '' })}
                   >
                     Utiliser
                   </Button>
@@ -220,7 +220,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setLoginData({ username: 'viewer', password: 'viewer123' })}
+                    onClick={() => setLoginData({ username: 'viewer', password: '' })}
                   >
                     Utiliser
                   </Button>
@@ -270,13 +270,13 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                 Mode développement
               </h4>
               <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
-                Token par défaut : <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">dev-token-change-in-production-12345</code>
+                Token par défaut : <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">[CONFIGURÉ DANS LES VARIABLES D'ENVIRONNEMENT]</code>
               </p>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setLegacyToken('dev-token-change-in-production-12345')}
+                onClick={() => setLegacyToken('')}
                 className="w-full"
               >
                 Utiliser le token de développement

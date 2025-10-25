@@ -1,17 +1,74 @@
+import { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Server, Monitor, Container, Activity, HardDrive, Network } from 'lucide-react';
 
 export function Overview() {
-  // Données mockées pour l'exemple
-  const stats = {
-    nodes: { total: 3, online: 3, offline: 0 },
-    vms: { total: 12, running: 10, stopped: 2 },
-    lxc: { total: 8, running: 7, stopped: 1 },
-    docker: { total: 24, running: 22, stopped: 2 },
-    storage: { used: 65, total: 100 },
-    network: { interfaces: 12, active: 11 },
+  const [stats, setStats] = useState({
+    nodes: { total: 0, online: 0, offline: 0 },
+    vms: { total: 0, running: 0, stopped: 0 },
+    lxc: { total: 0, running: 0, stopped: 0 },
+    docker: { total: 0, running: 0, stopped: 0 },
+    storage: { used: 0, total: 100 },
+    network: { interfaces: 0, active: 0 },
+  });
+
+  // Charger les statistiques depuis localStorage
+  const loadStats = () => {
+    try {
+      // Charger les nœuds
+      const savedNodes = localStorage.getItem('proxmoxNodes');
+      const nodes = savedNodes ? JSON.parse(savedNodes) : [];
+
+      // Charger les VMs
+      const savedVMs = localStorage.getItem('proxmoxVMs');
+      const vms = savedVMs ? JSON.parse(savedVMs) : [];
+
+      // Charger les conteneurs LXC
+      const savedLXC = localStorage.getItem('proxmoxLXC');
+      const lxc = savedLXC ? JSON.parse(savedLXC) : [];
+
+      console.log('📊 Données Overview chargées:', { nodes, vms, lxc });
+
+      setStats({
+        nodes: {
+          total: nodes.length,
+          online: nodes.filter((n: any) => n.status === 'online').length,
+          offline: nodes.filter((n: any) => n.status === 'offline').length,
+        },
+        vms: {
+          total: vms.length,
+          running: vms.filter((v: any) => v.status === 'running').length,
+          stopped: vms.filter((v: any) => v.status === 'stopped').length,
+        },
+        lxc: {
+          total: lxc.length,
+          running: lxc.filter((c: any) => c.status === 'running').length,
+          stopped: lxc.filter((c: any) => c.status === 'stopped').length,
+        },
+        docker: { total: 0, running: 0, stopped: 0 }, // Pas de données Docker pour l'instant
+        storage: { used: 0, total: 100 }, // Pas de données de stockage pour l'instant
+        network: { interfaces: 0, active: 0 }, // Pas de données réseau pour l'instant
+      });
+    } catch (err) {
+      console.error('❌ Erreur lors du chargement des statistiques:', err);
+    }
   };
+
+  useEffect(() => {
+    loadStats();
+  }, []);
+
+  // Écouter les mises à jour des données Proxmox
+  useEffect(() => {
+    const handleProxmoxDataUpdate = () => {
+      console.log('🔄 Mise à jour des données Proxmox détectée pour Overview');
+      loadStats();
+    };
+
+    window.addEventListener('proxmoxDataUpdated', handleProxmoxDataUpdate);
+    return () => window.removeEventListener('proxmoxDataUpdated', handleProxmoxDataUpdate);
+  }, []);
 
   const recentAlerts = [
     { id: 1, severity: 'warning', title: 'VM vm-101 - CPU élevé', time: '2 min' },

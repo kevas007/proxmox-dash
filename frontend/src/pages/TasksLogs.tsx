@@ -45,14 +45,17 @@ interface LogEntry {
 export function TasksLogs() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'tasks' | 'logs'>('tasks');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [levelFilter, setLevelFilter] = useState<string>('all');
 
-  // Données mockées
-  useEffect(() => {
+  // Charger les données TasksLogs depuis localStorage
+  const loadTasksLogsData = () => {
+    try {
+      // Pour l'instant, TasksLogs n'est pas intégré avec Proxmox
+      // Charger les données mockées
     const mockTasks: Task[] = [
       {
         id: 1,
@@ -145,9 +148,17 @@ export function TasksLogs() {
       }
     ];
 
-    setTasks(mockTasks);
-    setLogs(mockLogs);
-    setLoading(false);
+      setTasks(mockTasks);
+      setLogs(mockLogs);
+      setLoading(false);
+    } catch (err) {
+      console.error('❌ Erreur lors du chargement des données TasksLogs:', err);
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTasksLogsData();
   }, []);
 
   const getStatusIcon = (status: string) => {

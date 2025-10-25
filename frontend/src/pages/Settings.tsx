@@ -150,7 +150,7 @@ export function Settings() {
     }
   };
 
-  const handleSaveProxmoxConfig = () => {
+  const handleSaveProxmoxConfig = async () => {
     // Vérifier que les champs sont remplis
     if (!proxmoxConfig.username || !proxmoxConfig.secret) {
       error('Erreur', 'Veuillez remplir les champs utilisateur et secret');
@@ -172,10 +172,77 @@ export function Settings() {
     }
 
     try {
+      // Sauvegarder la configuration
       proxmoxConfigManager.saveConfig(formattedConfig);
-      success('Succès', 'Configuration Proxmox sauvegardée');
+
+      // Tester la connexion et récupérer les données Proxmox
+      const result = await proxmoxConfigManager.testConnection(formattedConfig);
+
+      if (result.status === 'success') {
+        // Récupérer les données Proxmox et les sauvegarder
+        await fetchProxmoxData();
+        success('Succès', 'Configuration Proxmox sauvegardée et connectée !\n\nLes données ont été récupérées.');
+      } else {
+        error('Erreur', 'Impossible de se connecter à Proxmox. Vérifiez vos paramètres.');
+      }
     } catch (err) {
       error('Erreur', 'Impossible de sauvegarder la configuration Proxmox');
+      console.error('Save Proxmox config error:', err);
+    }
+  };
+
+  // Fonction pour récupérer les données Proxmox via le backend
+  const fetchProxmoxData = async () => {
+    try {
+      console.log('🔄 Récupération des données Proxmox via le backend...');
+
+      // Envoyer la configuration Proxmox au backend pour qu'il fasse les appels
+      const response = await fetch('/api/v1/proxmox/fetch-data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: proxmoxConfig.url,
+          username: proxmoxConfig.username,
+          secret: proxmoxConfig.secret,
+          node: proxmoxConfig.node
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erreur backend: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('📊 Données Proxmox récupérées via backend:', data);
+
+      if (data.success) {
+        // Sauvegarder les données réelles dans localStorage
+        localStorage.setItem('proxmoxNodes', JSON.stringify(data.nodes || []));
+        localStorage.setItem('proxmoxVMs', JSON.stringify(data.vms || []));
+        localStorage.setItem('proxmoxLXC', JSON.stringify(data.lxc || []));
+
+        console.log('✅ Données Proxmox réelles sauvegardées:', {
+          nodes: data.nodes?.length || 0,
+          vms: data.vms?.length || 0,
+          lxc: data.lxc?.length || 0
+        });
+
+        success('Succès', `Données Proxmox récupérées !\n\n- ${data.nodes?.length || 0} nœuds\n- ${data.vms?.length || 0} VMs\n- ${data.lxc?.length || 0} conteneurs LXC`);
+
+        // Déclencher un événement personnalisé pour notifier les autres composants
+        window.dispatchEvent(new CustomEvent('proxmoxDataUpdated', {
+          detail: { nodes: data.nodes, vms: data.vms, lxc: data.lxc }
+        }));
+      } else {
+        throw new Error(data.message || 'Erreur lors de la récupération des données');
+      }
+
+    } catch (err) {
+      console.error('❌ Erreur lors de la récupération des données Proxmox:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Erreur inconnue';
+      error('Erreur', `Impossible de récupérer les données Proxmox: ${errorMessage}`);
     }
   };
 

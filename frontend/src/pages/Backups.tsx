@@ -48,14 +48,17 @@ interface Backup {
 
 export function Backups() {
   const [backups, setBackups] = useState<Backup[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const { success, error, warning } = useToast();
 
-  // Données mockées
-  useEffect(() => {
+  // Charger les données Backups depuis localStorage
+  const loadBackupsData = () => {
+    try {
+      // Pour l'instant, Backups n'est pas intégré avec Proxmox
+      // Charger les données mockées
     const mockBackups: Backup[] = [
       {
         id: 'backup-vm-101-20240115',
@@ -142,8 +145,21 @@ export function Backups() {
       }
     ];
 
-    setBackups(mockBackups);
-    setLoading(false);
+      setBackups(mockBackups);
+      setLoading(false);
+    } catch (err) {
+      console.error('❌ Erreur lors du chargement des données Backups:', err);
+      setLoading(false);
+    }
+  };
+
+  // Message d'information pour Backups
+  useEffect(() => {
+    warning('Information', 'Les données de sauvegarde ne sont pas encore intégrées avec Proxmox. Cette section affiche des données de démonstration.');
+  }, []);
+
+  useEffect(() => {
+    loadBackupsData();
   }, []);
 
   const getTypeIcon = (type: string) => {

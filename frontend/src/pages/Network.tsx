@@ -48,14 +48,17 @@ interface NetworkInterface {
 
 export function NetworkPage() {
   const [interfaces, setInterfaces] = useState<NetworkInterface[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const { success, error, warning } = useToast();
 
-  // Données mockées
-  useEffect(() => {
+  // Charger les données Network depuis localStorage
+  const loadNetworkData = () => {
+    try {
+      // Pour l'instant, Network n'est pas intégré avec Proxmox
+      // Charger les données mockées
     const mockInterfaces: NetworkInterface[] = [
       {
         id: 'vmbr0',
@@ -139,8 +142,21 @@ export function NetworkPage() {
       }
     ];
 
-    setInterfaces(mockInterfaces);
-    setLoading(false);
+      setInterfaces(mockInterfaces);
+      setLoading(false);
+    } catch (err) {
+      console.error('❌ Erreur lors du chargement des données Network:', err);
+      setLoading(false);
+    }
+  };
+
+  // Message d'information pour Network
+  useEffect(() => {
+    warning('Information', 'Les données réseau ne sont pas encore intégrées avec Proxmox. Cette section affiche des données de démonstration.');
+  }, []);
+
+  useEffect(() => {
+    loadNetworkData();
   }, []);
 
   const getTypeIcon = (type: string) => {

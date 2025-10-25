@@ -54,15 +54,18 @@ interface DockerImage {
 export function Docker() {
   const [containers, setContainers] = useState<DockerContainer[]>([]);
   const [images, setImages] = useState<DockerImage[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'containers' | 'images'>('containers');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const { success, error, warning } = useToast();
 
-  // Données mockées
-  useEffect(() => {
-    const mockContainers: DockerContainer[] = [
+  // Charger les données Docker depuis localStorage
+  const loadDockerData = () => {
+    try {
+      // Pour l'instant, Docker n'est pas intégré avec Proxmox
+      // Charger les données mockées
+      const mockContainers: DockerContainer[] = [
       {
         id: 'abc123def456',
         name: 'nginx-proxy',
@@ -164,9 +167,22 @@ export function Docker() {
       }
     ];
 
-    setContainers(mockContainers);
-    setImages(mockImages);
-    setLoading(false);
+      setContainers(mockContainers);
+      setImages(mockImages);
+      setLoading(false);
+    } catch (err) {
+      console.error('❌ Erreur lors du chargement des données Docker:', err);
+      setLoading(false);
+    }
+  };
+
+  // Message d'information pour Docker
+  useEffect(() => {
+    warning('Information', 'Les données Docker ne sont pas encore intégrées avec Proxmox. Cette section affiche des données de démonstration.');
+  }, []);
+
+  useEffect(() => {
+    loadDockerData();
   }, []);
 
   const getStatusIcon = (status: string) => {

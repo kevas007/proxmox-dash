@@ -45,8 +45,49 @@ export function LXC() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const { success, error, warning } = useToast();
 
-  // Données mockées
-  useEffect(() => {
+  // Charger les conteneurs LXC depuis localStorage
+  const loadContainers = () => {
+    try {
+      const savedLXC = localStorage.getItem('proxmoxLXC');
+      if (savedLXC) {
+        const proxmoxLXC = JSON.parse(savedLXC);
+        console.log('🐳 Conteneurs LXC chargés depuis localStorage:', proxmoxLXC);
+
+        // Convertir les données Proxmox vers le format LXCContainer
+        const convertedContainers: LXCContainer[] = proxmoxLXC.map((container: any, index: number) => ({
+          id: index + 1,
+          name: container.name || `LXC-${container.id}`,
+          status: container.status === 'running' ? 'running' : 'stopped',
+          vmid: container.id,
+          node: container.node || 'unknown',
+          cpu_cores: 1, // Valeur par défaut
+          memory: 1024, // Valeur par défaut
+          disk: 20, // Valeur par défaut
+          cpu_usage: container.cpu_usage || 0,
+          memory_usage: container.memory_usage || 0,
+          disk_usage: 0, // Non disponible dans les données Proxmox
+          uptime: container.uptime || 0,
+          os: 'Linux', // Valeur par défaut
+          owner: 'admin', // Valeur par défaut
+          created_at: container.last_update || new Date().toISOString(),
+          tags: ['lxc', 'proxmox']
+        }));
+
+        setContainers(convertedContainers);
+        console.log('✅ Conteneurs LXC convertis:', convertedContainers);
+        setLoading(false);
+      } else {
+        console.log('⚠️ Aucune donnée LXC trouvée dans localStorage - chargement des données mockées');
+        loadMockData();
+      }
+    } catch (err) {
+      console.error('❌ Erreur lors du chargement des conteneurs LXC:', err);
+      loadMockData();
+    }
+  };
+
+  // Charger les données mockées
+  const loadMockData = () => {
     const mockContainers: LXCContainer[] = [
       {
         id: 1,
@@ -106,7 +147,23 @@ export function LXC() {
 
     setContainers(mockContainers);
     setLoading(false);
+  };
+
+  useEffect(() => {
+    loadContainers();
   }, []);
+
+  // Écouter les mises à jour des données Proxmox
+  useEffect(() => {
+    const handleProxmoxDataUpdate = () => {
+      console.log('🔄 Mise à jour des données Proxmox détectée pour LXC');
+      loadContainers();
+    };
+
+    window.addEventListener('proxmoxDataUpdated', handleProxmoxDataUpdate);
+    return () => window.removeEventListener('proxmoxDataUpdated', handleProxmoxDataUpdate);
+  }, []);
+
 
   const getStatusIcon = (status: string) => {
     switch (status) {

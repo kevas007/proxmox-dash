@@ -48,14 +48,17 @@ interface DatabaseInstance {
 
 export function Databases() {
   const [databases, setDatabases] = useState<DatabaseInstance[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const { success, error, warning } = useToast();
 
-  // Données mockées
-  useEffect(() => {
+  // Charger les données Databases depuis localStorage
+  const loadDatabasesData = () => {
+    try {
+      // Pour l'instant, Databases n'est pas intégré avec Proxmox
+      // Charger les données mockées
     const mockDatabases: DatabaseInstance[] = [
       {
         id: 'mysql-01',
@@ -157,8 +160,21 @@ export function Databases() {
       }
     ];
 
-    setDatabases(mockDatabases);
-    setLoading(false);
+      setDatabases(mockDatabases);
+      setLoading(false);
+    } catch (err) {
+      console.error('❌ Erreur lors du chargement des données Databases:', err);
+      setLoading(false);
+    }
+  };
+
+  // Message d'information pour Databases
+  useEffect(() => {
+    warning('Information', 'Les données de bases de données ne sont pas encore intégrées avec Proxmox. Cette section affiche des données de démonstration.');
+  }, []);
+
+  useEffect(() => {
+    loadDatabasesData();
   }, []);
 
   const getTypeIcon = (type: string) => {

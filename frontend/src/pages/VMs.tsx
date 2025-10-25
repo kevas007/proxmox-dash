@@ -49,8 +49,49 @@ export function VMs() {
   const [nodeFilter, setNodeFilter] = useState<string>('all');
   const { success, error, warning } = useToast();
 
-  // Données mockées
-  useEffect(() => {
+  // Charger les VMs depuis localStorage
+  const loadVMs = () => {
+    try {
+      const savedVMs = localStorage.getItem('proxmoxVMs');
+      if (savedVMs) {
+        const proxmoxVMs = JSON.parse(savedVMs);
+        console.log('📊 VMs chargées depuis localStorage:', proxmoxVMs);
+
+        // Convertir les données Proxmox vers le format VM
+        const convertedVMs: VM[] = proxmoxVMs.map((vm: any, index: number) => ({
+          id: index + 1,
+          name: vm.name || `VM-${vm.id}`,
+          status: vm.status === 'running' ? 'running' : 'stopped',
+          vmid: vm.id,
+          node: vm.node || 'unknown',
+          cpu_cores: 2, // Valeur par défaut
+          memory: 2048, // Valeur par défaut
+          disk: 50, // Valeur par défaut
+          cpu_usage: vm.cpu_usage || 0,
+          memory_usage: vm.memory_usage || 0,
+          disk_usage: 0, // Non disponible dans les données Proxmox
+          uptime: vm.uptime || 0,
+          os: 'Linux', // Valeur par défaut
+          owner: 'admin', // Valeur par défaut
+          created_at: vm.last_update || new Date().toISOString(),
+          tags: ['proxmox']
+        }));
+
+        setVMs(convertedVMs);
+        console.log('✅ VMs converties:', convertedVMs);
+        setLoading(false);
+      } else {
+        console.log('⚠️ Aucune donnée VMs trouvée dans localStorage - chargement des données mockées');
+        loadMockData();
+      }
+    } catch (err) {
+      console.error('❌ Erreur lors du chargement des VMs:', err);
+      loadMockData();
+    }
+  };
+
+  // Charger les données mockées
+  const loadMockData = () => {
     const mockVMs: VM[] = [
       {
         id: 1,
@@ -89,47 +130,26 @@ export function VMs() {
         created_at: '2023-12-15T00:00:00Z',
         last_backup: '2024-01-14T02:30:00Z',
         tags: ['production', 'database']
-      },
-      {
-        id: 3,
-        name: 'dev-server-01',
-        status: 'stopped',
-        vmid: 103,
-        node: 'pve-02',
-        cpu_cores: 2,
-        memory: 2048,
-        disk: 30,
-        cpu_usage: 0,
-        memory_usage: 0,
-        disk_usage: 25,
-        uptime: 0,
-        os: 'Ubuntu 20.04 LTS',
-        owner: 'developer',
-        created_at: '2024-01-10T00:00:00Z',
-        tags: ['development']
-      },
-      {
-        id: 4,
-        name: 'test-server-01',
-        status: 'paused',
-        vmid: 104,
-        node: 'pve-02',
-        cpu_cores: 1,
-        memory: 1024,
-        disk: 20,
-        cpu_usage: 0,
-        memory_usage: 0,
-        disk_usage: 15,
-        uptime: 0,
-        os: 'CentOS 8',
-        owner: 'tester',
-        created_at: '2024-01-12T00:00:00Z',
-        tags: ['testing']
       }
     ];
 
     setVMs(mockVMs);
     setLoading(false);
+  };
+
+  useEffect(() => {
+    loadVMs();
+  }, []);
+
+  // Écouter les mises à jour des données Proxmox
+  useEffect(() => {
+    const handleProxmoxDataUpdate = () => {
+      console.log('🔄 Mise à jour des données Proxmox détectée pour VMs');
+      loadVMs();
+    };
+
+    window.addEventListener('proxmoxDataUpdated', handleProxmoxDataUpdate);
+    return () => window.removeEventListener('proxmoxDataUpdated', handleProxmoxDataUpdate);
   }, []);
 
   const getStatusIcon = (status: string) => {

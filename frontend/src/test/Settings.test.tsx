@@ -13,7 +13,7 @@ vi.mock('../utils/proxmox', () => ({
   proxmoxConfigManager: {
     getConfig: vi.fn(() => ({
       url: 'https://pve.example.com:8006',
-      token: 'test-token',
+      token: '[TEST-TOKEN]',
       node: 'pve',
     })),
     validateConfig: vi.fn(() => ({ isValid: true, errors: [] })),

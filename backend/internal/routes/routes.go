@@ -65,6 +65,11 @@ func SetupRoutes(h *handlers.Handlers, hub *sse.Hub) *chi.Mux {
 		r.Route("/admin", func(r chi.Router) {
 			r.Post("/clear-db", h.ClearDatabase)
 		})
+
+		// Proxmox
+		r.Route("/proxmox", func(r chi.Router) {
+			r.Post("/fetch-data", h.FetchProxmoxData)
+		})
 	})
 
 	// Server-Sent Events
