@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -99,4 +100,98 @@ type SubscribeRequest struct {
 type SSEEvent struct {
 	Type string      `json:"type"`
 	Data interface{} `json:"data"`
+}
+
+// Validate valide les données d'une App
+func (a *App) Validate() error {
+	if a.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if a.Protocol != "http" && a.Protocol != "https" {
+		return fmt.Errorf("protocol must be http or https")
+	}
+	if a.Host == "" {
+		return fmt.Errorf("host is required")
+	}
+	if a.Port <= 0 || a.Port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535")
+	}
+	return nil
+}
+
+// Validate valide les données d'une Alert
+func (a *Alert) Validate() error {
+	if a.Title == "" {
+		return fmt.Errorf("title is required")
+	}
+	if a.Message == "" {
+		return fmt.Errorf("message is required")
+	}
+	if a.Severity != "low" && a.Severity != "medium" && a.Severity != "high" && a.Severity != "critical" {
+		return fmt.Errorf("severity must be low, medium, high, or critical")
+	}
+	return nil
+}
+
+// Validate valide les données d'une NotifySubscription
+func (n *NotifySubscription) Validate() error {
+	if n.Channel != "email" && n.Channel != "webhook" {
+		return fmt.Errorf("channel must be email or webhook")
+	}
+	if n.Endpoint == "" {
+		return fmt.Errorf("endpoint is required")
+	}
+	return nil
+}
+
+// Validate valide les données d'un EmailQueue
+func (e *EmailQueue) Validate() error {
+	if e.ToAddr == "" {
+		return fmt.Errorf("to_addr is required")
+	}
+	if e.Subject == "" {
+		return fmt.Errorf("subject is required")
+	}
+	if e.State != "pending" && e.State != "sent" && e.State != "failed" {
+		return fmt.Errorf("state must be pending, sent, or failed")
+	}
+
+	// Validation basique de l'email
+	if !isValidEmail(e.ToAddr) {
+		return fmt.Errorf("invalid email address: %s", e.ToAddr)
+	}
+
+	return nil
+}
+
+// isValidEmail vérifie si une adresse email est valide (validation basique)
+func isValidEmail(email string) bool {
+	// Validation très basique - contient @ et un point
+	return len(email) > 0 &&
+		len(email) < 254 &&
+		contains(email, "@") &&
+		contains(email, ".") &&
+		!contains(email, " ") &&
+		!contains(email, "';") &&
+		!contains(email, "<script")
+}
+
+// contains vérifie si une chaîne contient une sous-chaîne
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) &&
+		(s == substr ||
+			(len(s) > len(substr) &&
+				(s[:len(substr)] == substr ||
+					s[len(s)-len(substr):] == substr ||
+					containsInMiddle(s, substr))))
+}
+
+// containsInMiddle vérifie si une sous-chaîne est au milieu d'une chaîne
+func containsInMiddle(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

@@ -78,11 +78,15 @@ export function Layout({
               {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
             <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">PD</span>
+              <div className="w-8 h-8 flex items-center justify-center">
+                <img
+                  src="/nexboard-logo.png"
+                  alt="NexBoard Logo"
+                  className="w-8 h-8 object-contain"
+                />
               </div>
               <span className="font-semibold text-slate-900 dark:text-slate-100">
-                ProxmoxDash
+                NexBoard
               </span>
             </div>
           </div>

@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { useToast } from '@/components/ui/Toast';
 
 interface LXCContainer {
   id: number;
@@ -42,6 +43,7 @@ export function LXC() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const { success, error, warning } = useToast();
 
   // Données mockées
   useEffect(() => {
@@ -166,6 +168,55 @@ export function LXC() {
     return matchesSearch && matchesStatus;
   });
 
+  // Actions pour les conteneurs LXC
+  const handleContainerStart = async (container: LXCContainer) => {
+    try {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      setContainers(prevContainers =>
+        prevContainers.map(c =>
+          c.id === container.id
+            ? { ...c, status: 'running' as const, uptime: 0 }
+            : c
+        )
+      );
+
+      success('Succès', `Conteneur ${container.name} démarré avec succès`);
+    } catch (err) {
+      error('Erreur', `Impossible de démarrer le conteneur ${container.name}`);
+    }
+  };
+
+  const handleContainerStop = async (container: LXCContainer) => {
+    try {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      setContainers(prevContainers =>
+        prevContainers.map(c =>
+          c.id === container.id
+            ? { ...c, status: 'stopped' as const, uptime: 0, cpu_usage: 0, memory_usage: 0 }
+            : c
+        )
+      );
+
+      success('Succès', `Conteneur ${container.name} arrêté avec succès`);
+    } catch (err) {
+      error('Erreur', `Impossible d'arrêter le conteneur ${container.name}`);
+    }
+  };
+
+  const handleContainerConfig = (container: LXCContainer) => {
+    warning('Fonctionnalité', `Configuration du conteneur ${container.name} - À implémenter`);
+  };
+
+  const handleContainerView = (container: LXCContainer) => {
+    success('Information', `Affichage des détails du conteneur ${container.name}`);
+  };
+
+  const handleContainerEdit = (container: LXCContainer) => {
+    warning('Fonctionnalité', `Édition du conteneur ${container.name} - À implémenter`);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -268,10 +319,20 @@ export function LXC() {
                 <div className="flex items-center space-x-2">
                   {getStatusBadge(container.status)}
                   <div className="flex space-x-1">
-                    <Button variant="ghost" size="sm" className="p-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="p-1"
+                      onClick={() => handleContainerView(container)}
+                    >
                       <Eye className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="p-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="p-1"
+                      onClick={() => handleContainerEdit(container)}
+                    >
                       <Edit className="h-4 w-4" />
                     </Button>
                     <Button variant="ghost" size="sm" className="p-1">
@@ -383,17 +444,29 @@ export function LXC() {
               {/* Actions */}
               <div className="flex space-x-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                 {container.status === 'running' ? (
-                  <Button variant="outline" size="sm">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleContainerStop(container)}
+                  >
                     <Square className="h-4 w-4 mr-1" />
                     Arrêter
                   </Button>
                 ) : (
-                  <Button variant="outline" size="sm">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleContainerStart(container)}
+                  >
                     <Play className="h-4 w-4 mr-1" />
                     Démarrer
                   </Button>
                 )}
-                <Button variant="outline" size="sm">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleContainerConfig(container)}
+                >
                   <Settings className="h-4 w-4 mr-1" />
                   Config
                 </Button>

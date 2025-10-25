@@ -84,7 +84,7 @@ func (w *Worker) processQueue() {
 	}
 
 	for _, email := range emails {
-		if err := w.sendEmail(email); err != nil {
+		if err := w.sendEmail(*email); err != nil {
 			log.Printf("Error sending email %d: %v", email.ID, err)
 			w.store.MarkEmailError(email.ID, err.Error())
 		} else {
@@ -146,7 +146,14 @@ Cordialement,
 L'équipe ProxmoxDash
 `, w.config.Host, w.config.Port, time.Now().Format("2006-01-02 15:04:05"), to)
 
-	return w.store.EnqueueEmail(to, subject, body)
+	email := &models.EmailQueue{
+		ToAddr:    to,
+		Subject:   subject,
+		BodyText:  body,
+		State:     "pending",
+		CreatedAt: time.Now(),
+	}
+	return w.store.EnqueueEmail(email)
 }
 
 // SendAlertEmail envoie un email d'alerte
@@ -171,7 +178,14 @@ Système de monitoring ProxmoxDash
 `, alert.Title, alert.Severity, alert.Source, alert.Message,
 		alert.ID, alert.CreatedAt.Format("2006-01-02 15:04:05"))
 
-	return w.store.EnqueueEmail(to, subject, body)
+	email := &models.EmailQueue{
+		ToAddr:    to,
+		Subject:   subject,
+		BodyText:  body,
+		State:     "pending",
+		CreatedAt: time.Now(),
+	}
+	return w.store.EnqueueEmail(email)
 }
 
 // Fonctions utilitaires pour les variables d'environnement

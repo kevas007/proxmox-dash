@@ -9,30 +9,15 @@ import { TasksLogs } from './pages/TasksLogs';
 import { Nodes } from './pages/Nodes';
 import { VMs } from './pages/VMs';
 import { LXC } from './pages/LXC';
+import { Docker } from './pages/Docker';
+import { Databases } from './pages/Databases';
+import { Storage } from './pages/Storage';
+import { NetworkPage } from './pages/Network';
+import { Backups } from './pages/Backups';
 import { useSSE } from './hooks/useSSE';
 import { useAuth } from './utils/auth';
 import { apiGet, Alert } from './utils/api';
 
-// Pages placeholder pour les autres sections
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-          {title}
-        </h1>
-        <p className="text-slate-600 dark:text-slate-400">
-          Cette section sera implémentée dans une version future.
-        </p>
-      </div>
-      <div className="bg-slate-100 dark:bg-slate-800 rounded-2xl p-12 text-center">
-        <p className="text-slate-500 dark:text-slate-400">
-          Contenu à venir...
-        </p>
-      </div>
-    </div>
-  );
-}
 
 function App() {
   const [currentSection, setCurrentSection] = useState('overview');
@@ -44,15 +29,15 @@ function App() {
     return false;
   });
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const { toasts, removeToast, success, warning, error, info } = useToast();
+  const { toasts, removeToast, warning, error, info } = useToast();
   const { isAuthenticated } = useAuth();
 
   // Configuration SSE
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080';
-  const sseUrl = `${apiUrl}/api/alerts/stream`;
+  const sseUrl = `${apiUrl}/api/v1/alerts/stream`;
 
   // Hook SSE pour les notifications temps réel (seulement si authentifié)
-  const { isConnected } = useSSE(isAuthenticated ? sseUrl : '', {
+  useSSE(isAuthenticated ? sseUrl : '', {
     onAlert: (alert: Alert) => {
       // Ajouter l'alerte à la liste
       setAlerts(prev => [alert, ...(prev || []).slice(0, 19)]); // Garder seulement les 20 dernières
@@ -84,10 +69,10 @@ function App() {
       );
     },
     onConnected: () => {
-      success('Connexion établie', 'Notifications temps réel activées');
+      // Connexion SSE établie - pas de notification
     },
     onError: () => {
-      error('Erreur de connexion', 'Impossible de se connecter aux notifications temps réel');
+      // Erreur SSE - pas de notification
     },
   });
 
@@ -95,7 +80,7 @@ function App() {
   useEffect(() => {
     const loadAlerts = async () => {
       try {
-        const alertsData = await apiGet<Alert[]>('/api/alerts?limit=20');
+        const alertsData = await apiGet<Alert[]>('/api/v1/alerts?limit=20');
         setAlerts(alertsData);
       } catch (err) {
         console.error('Failed to load alerts:', err);
@@ -141,15 +126,15 @@ function App() {
       case 'lxc':
         return <LXC />;
       case 'docker':
-        return <PlaceholderPage title="Conteneurs Docker" />;
+        return <Docker />;
       case 'databases':
-        return <PlaceholderPage title="Bases de données" />;
+        return <Databases />;
       case 'storage':
-        return <PlaceholderPage title="Stockage" />;
+        return <Storage />;
       case 'network':
-        return <PlaceholderPage title="Réseau" />;
+        return <NetworkPage />;
       case 'backups':
-        return <PlaceholderPage title="Sauvegardes" />;
+        return <Backups />;
       case 'tasks':
         return <TasksLogs />;
       default:
@@ -172,18 +157,7 @@ function App() {
       {/* Container des toasts */}
       <ToastContainer toasts={toasts} onRemove={removeToast} />
 
-      {/* Indicateur de connexion SSE (dev) */}
-      {import.meta.env.DEV && (
-        <div className="fixed bottom-4 left-4 z-50">
-          <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-            isConnected
-              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-              : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-          }`}>
-            SSE: {isConnected ? 'Connecté' : 'Déconnecté'}
-          </div>
-        </div>
-      )}
+      {/* Indicateur de connexion SSE supprimé */}
     </div>
   );
 }

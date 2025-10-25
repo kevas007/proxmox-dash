@@ -1,126 +1,70 @@
-# Makefile pour ProxmoxDash (Version Windows)
-.PHONY: help build run test clean dev prod security-test
+# Makefile pour Windows - Projet ProxmoxDash
+
+.PHONY: help build test test-backend test-frontend test-integration clean install
 
 # Variables
 BACKEND_DIR = backend
 FRONTEND_DIR = frontend
-DOCKER_COMPOSE = docker compose
+TESTS_DIR = tests
 
 help: ## Affiche cette aide
-	@echo "ProxmoxDash - Commandes disponibles:"
-	@echo ""
-	@findstr /R "^[a-zA-Z_-]*:.*##" $(MAKEFILE_LIST) | findstr /V "findstr"
+	@echo ProxmoxDash - Commandes disponibles:
+	@echo.
+	@grep -E "^[a-zA-Z_-]+:.*?## .*$$" $(MAKEFILE_LIST) | sort | awk "BEGIN {FS = \":.*?## \"}; {printf \"  %-20s %s\n\", $$1, $$2}"
 
-install: ## Installe toutes les dépendances
-	@echo "Installation des dépendances..."
-	cd $(BACKEND_DIR) && go mod download
-	cd $(FRONTEND_DIR) && npm install
+install: ## Installe les dépendances
+	@echo Installation des dépendances...
+	@cd $(BACKEND_DIR) && go mod tidy
+	@cd $(FRONTEND_DIR) && npm install
 
-build: ## Compile le projet complet
-	@echo "Compilation du projet..."
-	cd $(BACKEND_DIR) && go build -o main.exe ./cmd/main.go
-	cd $(FRONTEND_DIR) && npm run build
+build: ## Build le projet
+	@echo Build du projet...
+	@cd $(BACKEND_DIR) && go build -o main.exe cmd/main.go
+	@cd $(FRONTEND_DIR) && npm run build
 
-run-backend: ## Lance le backend Go
-	@echo "Démarrage du backend..."
-	cd $(BACKEND_DIR) && go run ./cmd/main.go
+test: test-backend test-frontend ## Lance tous les tests
+	@echo Tous les tests sont terminés
 
-run-frontend: ## Lance le frontend en mode dev
-	@echo "Démarrage du frontend..."
-	cd $(FRONTEND_DIR) && npm run dev
+test-backend: ## Lance les tests du backend
+	@echo Tests du backend...
+	@cd $(BACKEND_DIR) && go test -v ./...
 
-dev: ## Lance l'environnement de développement complet
-	@echo "Démarrage de l'environnement de développement..."
-	$(DOCKER_COMPOSE) --env-file config.env up -d
+test-frontend: ## Lance les tests du frontend
+	@echo Tests du frontend...
+	@cd $(FRONTEND_DIR) && npm run test:run
 
-prod: ## Lance l'environnement de production
-	@echo "Démarrage de l'environnement de production..."
-	$(DOCKER_COMPOSE) --env-file config.prod.env up -d
+test-coverage: ## Lance les tests avec couverture
+	@echo Tests avec couverture...
+	@cd $(BACKEND_DIR) && go test -cover ./...
+	@cd $(FRONTEND_DIR) && npm run test:coverage
 
-stop: ## Arrête tous les services Docker
-	@echo "Arrêt des services..."
-	$(DOCKER_COMPOSE) down
+test-watch: ## Lance les tests en mode watch
+	@echo Tests en mode watch...
+	@cd $(FRONTEND_DIR) && npm test
 
-logs: ## Affiche les logs des services
-	$(DOCKER_COMPOSE) logs -f
-
-test: ## Lance les tests
-	@echo "Exécution des tests..."
-	cd $(BACKEND_DIR) && go test ./...
-	cd $(FRONTEND_DIR) && npm test
-
-security-test: ## Lance les tests de sécurité
-	@echo "Tests de sécurité..."
-	@powershell -ExecutionPolicy Bypass -File test-security.ps1
-
-generate-tokens: ## Génère des tokens de sécurité
-	@echo "Génération de tokens sécurisés..."
-	@node scripts/generate-tokens.js
+test-ui: ## Lance l'interface de test
+	@echo Interface de test...
+	@cd $(FRONTEND_DIR) && npm run test:ui
 
 clean: ## Nettoie les fichiers de build
-	@echo "Nettoyage..."
-	cd $(BACKEND_DIR) && if exist main.exe del main.exe
-	cd $(FRONTEND_DIR) && if exist dist rmdir /s /q dist
-	cd $(FRONTEND_DIR) && if exist node_modules\.cache rmdir /s /q node_modules\.cache
-	$(DOCKER_COMPOSE) down --volumes --remove-orphans
+	@echo Nettoyage...
+	@cd $(BACKEND_DIR) && go clean
+	@cd $(FRONTEND_DIR) && if exist dist rmdir /s /q dist
+	@cd $(FRONTEND_DIR) && if exist node_modules\.vite rmdir /s /q node_modules\.vite
+	@if exist $(TESTS_DIR)\coverage rmdir /s /q $(TESTS_DIR)\coverage
 
-rebuild: clean build ## Nettoie et recompile tout
+dev: ## Lance le mode développement
+	@echo Mode développement...
+	@echo Backend: http://localhost:8080
+	@echo Frontend: http://localhost:5173
+	@echo Utilisez Ctrl+C pour arrêter
 
-docker-build: ## Construit les images Docker
-	@echo "Construction des images Docker..."
-	$(DOCKER_COMPOSE) build
-
-docker-rebuild: ## Reconstruit les images Docker sans cache
-	@echo "Reconstruction des images Docker..."
-	$(DOCKER_COMPOSE) build --no-cache
-
-health-check: ## Vérifie la santé des services
-	@echo "Vérification de la santé des services..."
-	@powershell -Command "try { Invoke-WebRequest -Uri 'http://localhost:8080/api/health' -UseBasicParsing | Out-Null; Write-Host 'Backend: OK' } catch { Write-Host 'Backend: KO' }"
-	@powershell -Command "try { Invoke-WebRequest -Uri 'http://localhost:5173/health' -UseBasicParsing | Out-Null; Write-Host 'Frontend: OK' } catch { Write-Host 'Frontend: KO' }"
-	@powershell -Command "try { Invoke-WebRequest -Uri 'http://localhost:8025/' -UseBasicParsing | Out-Null; Write-Host 'MailHog: OK' } catch { Write-Host 'MailHog: KO' }"
-
-backup: ## Sauvegarde la base de données
-	@echo "Sauvegarde de la base de données..."
-	@if not exist backups mkdir backups
-	@powershell -Command "if (Test-Path 'data/app.db') { Copy-Item 'data/app.db' \"backups/app-$(Get-Date -Format 'yyyyMMdd-HHmmss').db\"; Write-Host 'Sauvegarde créée dans backups/' } else { Write-Host 'Aucune base de données à sauvegarder' }"
-
-restore: ## Restaure la dernière sauvegarde
-	@echo "Restauration de la dernière sauvegarde..."
-	@powershell -Command "$$latest = Get-ChildItem backups/app-*.db -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($$latest) { Copy-Item $$latest.FullName 'data/app.db'; Write-Host \"Base de données restaurée depuis $$($latest.Name)\" } else { Write-Host 'Aucune sauvegarde trouvée' }"
-
-setup-dev: ## Configuration initiale pour le développement
-	@echo "Configuration de l'environnement de développement..."
-	@if not exist config.env copy env.example config.env && echo "Fichier config.env créé"
-	@if not exist data mkdir data
-	@if not exist backups mkdir backups
-	@if not exist logs mkdir logs
-	$(MAKE) install
-	@echo "Environnement de développement prêt!"
-	@echo "Lancez 'make dev' pour démarrer"
-
-setup-prod: ## Configuration initiale pour la production
-	@echo "Configuration de l'environnement de production..."
-	@if not exist config.prod.env copy env.example config.prod.env && echo "Fichier config.prod.env créé" && echo "ATTENTION: Modifiez config.prod.env avec vos valeurs de production!" && echo "Utilisez 'make generate-tokens' pour créer des tokens sécurisés"
-	@if not exist data mkdir data
-	@if not exist backups mkdir backups
-	@if not exist logs mkdir logs
-	@echo "Configuration de production créée"
-
-lint: ## Lance les linters
-	@echo "Linting du code..."
-	cd $(BACKEND_DIR) && go fmt ./...
-	cd $(FRONTEND_DIR) && npm run lint
+lint: ## Lance le linting
+	@echo Linting...
+	@cd $(BACKEND_DIR) && go vet ./...
+	@cd $(FRONTEND_DIR) && npm run lint
 
 format: ## Formate le code
-	@echo "Formatage du code..."
-	cd $(BACKEND_DIR) && go fmt ./...
-	cd $(FRONTEND_DIR) && npm run lint --fix
-
-update: ## Met à jour les dépendances
-	@echo "Mise à jour des dépendances..."
-	cd $(BACKEND_DIR) && go mod tidy && go get -u ./...
-	cd $(FRONTEND_DIR) && npm update
-
-# Commande par défaut
-.DEFAULT_GOAL := help
+	@echo Formatage du code...
+	@cd $(BACKEND_DIR) && go fmt ./...
+	@cd $(FRONTEND_DIR) && npm run lint -- --fix

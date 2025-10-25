@@ -214,3 +214,8 @@ func (h *Hub) GetClientCount() int {
 	defer h.mu.RUnlock()
 	return len(h.clients)
 }
+
+// ServeHTTP implémente http.Handler pour le hub SSE
+func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.ServeSSE(w, r)
+}

@@ -35,60 +35,140 @@ interface Node {
 export function Nodes() {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Données mockées
-  useEffect(() => {
-    const mockNodes: Node[] = [
-      {
-        id: 'pve-01',
-        name: 'pve-01',
-        status: 'online',
-        cpu_usage: 45,
-        memory_usage: 68,
-        disk_usage: 72,
-        uptime: 86400 * 15, // 15 jours
-        temperature: 42,
-        vms_count: 8,
-        lxc_count: 12,
-        last_update: '2024-01-15T14:30:00Z',
-        version: '8.1.4',
-        ip_address: '192.168.1.10'
-      },
-      {
-        id: 'pve-02',
-        name: 'pve-02',
-        status: 'online',
-        cpu_usage: 23,
-        memory_usage: 45,
-        disk_usage: 58,
-        uptime: 86400 * 12, // 12 jours
-        temperature: 38,
-        vms_count: 5,
-        lxc_count: 8,
-        last_update: '2024-01-15T14:30:00Z',
-        version: '8.1.4',
-        ip_address: '192.168.1.11'
-      },
-      {
-        id: 'pve-03',
-        name: 'pve-03',
-        status: 'maintenance',
-        cpu_usage: 0,
-        memory_usage: 12,
-        disk_usage: 35,
-        uptime: 0,
-        temperature: 25,
-        vms_count: 0,
-        lxc_count: 0,
-        last_update: '2024-01-15T10:00:00Z',
-        version: '8.1.4',
-        ip_address: '192.168.1.12'
+  // Fonction pour charger les nœuds
+  const loadNodes = async () => {
+    setRefreshing(true);
+    try {
+      // Simulation d'un appel API avec des données dynamiques
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Récupérer les nœuds depuis le localStorage (simulation d'un cache)
+      const savedNodes = localStorage.getItem('proxmoxNodes');
+      let mockNodes: Node[] = [];
+
+      if (savedNodes) {
+        mockNodes = JSON.parse(savedNodes);
+      } else {
+        // Données par défaut
+        mockNodes = [
+          {
+            id: 'pve-01',
+            name: 'pve-01',
+            status: 'online',
+            cpu_usage: 45,
+            memory_usage: 68,
+            disk_usage: 72,
+            uptime: 86400 * 15, // 15 jours
+            temperature: 42,
+            vms_count: 8,
+            lxc_count: 12,
+            last_update: new Date().toISOString(),
+            version: '8.1.4',
+            ip_address: '192.168.1.10'
+          },
+          {
+            id: 'pve-02',
+            name: 'pve-02',
+            status: 'online',
+            cpu_usage: 23,
+            memory_usage: 45,
+            disk_usage: 58,
+            uptime: 86400 * 12, // 12 jours
+            temperature: 38,
+            vms_count: 5,
+            lxc_count: 8,
+            last_update: new Date().toISOString(),
+            version: '8.1.4',
+            ip_address: '192.168.1.11'
+          },
+          {
+            id: 'pve-03',
+            name: 'pve-03',
+            status: 'maintenance',
+            cpu_usage: 0,
+            memory_usage: 12,
+            disk_usage: 35,
+            uptime: 0,
+            temperature: 25,
+            vms_count: 0,
+            lxc_count: 0,
+            last_update: new Date().toISOString(),
+            version: '8.1.4',
+            ip_address: '192.168.1.12'
+          }
+        ];
       }
-    ];
 
-    setNodes(mockNodes);
-    setLoading(false);
+      setNodes(mockNodes);
+      setLoading(false);
+    } catch (error) {
+      console.error('Erreur lors du chargement des nœuds:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Charger les nœuds au montage du composant
+  useEffect(() => {
+    loadNodes();
   }, []);
+
+  // Rafraîchissement automatique toutes les 30 secondes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadNodes();
+    }, 30000); // 30 secondes
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fonction pour ajouter un nouveau nœud
+  const addNewNode = () => {
+    const newNodeId = `pve-${String(nodes.length + 1).padStart(2, '0')}`;
+    const newNode: Node = {
+      id: newNodeId,
+      name: newNodeId,
+      status: 'online',
+      cpu_usage: Math.floor(Math.random() * 50) + 10,
+      memory_usage: Math.floor(Math.random() * 60) + 20,
+      disk_usage: Math.floor(Math.random() * 40) + 30,
+      uptime: 0,
+      temperature: Math.floor(Math.random() * 20) + 30,
+      vms_count: 0,
+      lxc_count: 0,
+      last_update: new Date().toISOString(),
+      version: '8.1.4',
+      ip_address: `192.168.1.${10 + nodes.length}`
+    };
+
+    const updatedNodes = [...nodes, newNode];
+    setNodes(updatedNodes);
+
+    // Sauvegarder dans le localStorage
+    localStorage.setItem('proxmoxNodes', JSON.stringify(updatedNodes));
+  };
+
+  // Fonction pour vider complètement la base de données
+  const clearAllNodes = () => {
+    if (window.confirm('⚠️ ATTENTION: Cette action va supprimer TOUS les nœuds de la base de données.\n\nÊtes-vous sûr de vouloir continuer ?')) {
+      if (window.confirm('🚨 DERNIÈRE CHANCE: Cette action est IRRÉVERSIBLE !\n\nTous les nœuds seront définitivement supprimés.\n\nConfirmez-vous la suppression ?')) {
+        // Vider le localStorage
+        localStorage.removeItem('proxmoxNodes');
+
+        // Réinitialiser l'état
+        setNodes([]);
+
+        // Recharger les données par défaut
+        setTimeout(() => {
+          loadNodes();
+        }, 500);
+
+        alert('✅ Base de données vidée avec succès !\n\nLes nœuds par défaut ont été restaurés.');
+      }
+    }
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -160,13 +240,43 @@ export function Nodes() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-          Nœuds du cluster
-        </h1>
-        <p className="text-slate-600 dark:text-slate-400">
-          Gestion et monitoring des nœuds Proxmox
-        </p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+            Nœuds du cluster
+          </h1>
+          <p className="text-slate-600 dark:text-slate-400">
+            Gestion et monitoring des nœuds Proxmox
+          </p>
+        </div>
+        <div className="flex space-x-2">
+          <Button
+            onClick={loadNodes}
+            disabled={refreshing}
+            variant="outline"
+            size="sm"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+            Rafraîchir
+          </Button>
+          <Button
+            onClick={addNewNode}
+            variant="primary"
+            size="sm"
+          >
+            <Server className="h-4 w-4 mr-2" />
+            Ajouter un nœud
+          </Button>
+          <Button
+            onClick={clearAllNodes}
+            variant="danger"
+            size="sm"
+            className="bg-red-600 hover:bg-red-700 text-white"
+          >
+            <XCircle className="h-4 w-4 mr-2" />
+            Vider la DB
+          </Button>
+        </div>
       </div>
 
       {/* Statistiques globales */}

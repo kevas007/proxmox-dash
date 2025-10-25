@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { useToast } from '@/components/ui/Toast';
 
 interface VM {
   id: number;
@@ -46,6 +47,7 @@ export function VMs() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [nodeFilter, setNodeFilter] = useState<string>('all');
+  const { success, error, warning } = useToast();
 
   // Données mockées
   useEffect(() => {
@@ -209,6 +211,95 @@ export function VMs() {
     return matchesSearch && matchesStatus && matchesNode;
   });
 
+  // Actions pour les VMs
+  const handleVMStart = async (vm: VM) => {
+    try {
+      // Simulation d'appel API
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      setVMs(prevVMs =>
+        prevVMs.map(v =>
+          v.id === vm.id
+            ? { ...v, status: 'running' as const, uptime: 0 }
+            : v
+        )
+      );
+
+      success('Succès', `VM ${vm.name} démarrée avec succès`);
+    } catch (err) {
+      error('Erreur', `Impossible de démarrer la VM ${vm.name}`);
+    }
+  };
+
+  const handleVMStop = async (vm: VM) => {
+    try {
+      // Simulation d'appel API
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      setVMs(prevVMs =>
+        prevVMs.map(v =>
+          v.id === vm.id
+            ? { ...v, status: 'stopped' as const, uptime: 0, cpu_usage: 0, memory_usage: 0 }
+            : v
+        )
+      );
+
+      success('Succès', `VM ${vm.name} arrêtée avec succès`);
+    } catch (err) {
+      error('Erreur', `Impossible d'arrêter la VM ${vm.name}`);
+    }
+  };
+
+  const handleVMPause = async (vm: VM) => {
+    try {
+      // Simulation d'appel API
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      setVMs(prevVMs =>
+        prevVMs.map(v =>
+          v.id === vm.id
+            ? { ...v, status: 'paused' as const }
+            : v
+        )
+      );
+
+      success('Succès', `VM ${vm.name} mise en pause`);
+    } catch (err) {
+      error('Erreur', `Impossible de mettre en pause la VM ${vm.name}`);
+    }
+  };
+
+  const handleVMRestart = async (vm: VM) => {
+    try {
+      // Simulation d'appel API
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      setVMs(prevVMs =>
+        prevVMs.map(v =>
+          v.id === vm.id
+            ? { ...v, status: 'running' as const, uptime: 0 }
+            : v
+        )
+      );
+
+      success('Succès', `VM ${vm.name} redémarrée avec succès`);
+    } catch (err) {
+      error('Erreur', `Impossible de redémarrer la VM ${vm.name}`);
+    }
+  };
+
+  const handleVMConfig = (vm: VM) => {
+    warning('Fonctionnalité', `Configuration de la VM ${vm.name} - À implémenter`);
+  };
+
+  const handleVMView = (vm: VM) => {
+    success('Information', `Affichage des détails de la VM ${vm.name}`);
+  };
+
+  const handleVMEdit = (vm: VM) => {
+    warning('Fonctionnalité', `Édition de la VM ${vm.name} - À implémenter`);
+  };
+
   const uniqueNodes = [...new Set(vms.map(vm => vm.node))];
 
   if (loading) {
@@ -337,10 +428,20 @@ export function VMs() {
                 <div className="flex items-center space-x-2">
                   {getStatusBadge(vm.status)}
                   <div className="flex space-x-1">
-                    <Button variant="ghost" size="sm" className="p-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="p-1"
+                      onClick={() => handleVMView(vm)}
+                    >
                       <Eye className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="p-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="p-1"
+                      onClick={() => handleVMEdit(vm)}
+                    >
                       <Edit className="h-4 w-4" />
                     </Button>
                     <Button variant="ghost" size="sm" className="p-1">
@@ -453,22 +554,46 @@ export function VMs() {
               <div className="flex space-x-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                 {vm.status === 'running' ? (
                   <>
-                    <Button variant="outline" size="sm">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleVMPause(vm)}
+                    >
                       <Pause className="h-4 w-4 mr-1" />
                       Pause
                     </Button>
-                    <Button variant="outline" size="sm">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleVMStop(vm)}
+                    >
                       <Square className="h-4 w-4 mr-1" />
                       Arrêter
                     </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleVMRestart(vm)}
+                    >
+                      <RotateCcw className="h-4 w-4 mr-1" />
+                      Redémarrer
+                    </Button>
                   </>
                 ) : (
-                  <Button variant="outline" size="sm">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleVMStart(vm)}
+                  >
                     <Play className="h-4 w-4 mr-1" />
                     Démarrer
                   </Button>
                 )}
-                <Button variant="outline" size="sm">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleVMConfig(vm)}
+                >
                   <Settings className="h-4 w-4 mr-1" />
                   Config
                 </Button>

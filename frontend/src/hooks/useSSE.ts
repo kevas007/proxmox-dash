@@ -15,15 +15,23 @@ export function useSSE(url: string, options: UseSSEOptions = {}) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectAttempts = useRef(0);
-  const maxReconnectAttempts = 5;
+  const maxReconnectAttempts = 2; // Limiter les tentatives de reconnexion
+  const isConnectingRef = useRef(false);
 
   const connect = () => {
+    // Éviter les connexions multiples
+    if (isConnectingRef.current || eventSourceRef.current?.readyState === EventSource.CONNECTING) {
+      return;
+    }
+
     try {
       setError(null);
+      isConnectingRef.current = true;
 
       // Vérifier si l'utilisateur est authentifié
       if (!authManager.isAuthenticated()) {
         setError('Authentification requise pour les notifications');
+        isConnectingRef.current = false;
         return;
       }
 
@@ -37,23 +45,30 @@ export function useSSE(url: string, options: UseSSEOptions = {}) {
       eventSource.onopen = () => {
         setIsConnected(true);
         reconnectAttempts.current = 0;
-        console.log('SSE connected');
+        isConnectingRef.current = false;
+        // Connexion SSE établie silencieusement
       };
 
       eventSource.onerror = (event) => {
         setIsConnected(false);
-        console.error('SSE error:', event);
+        isConnectingRef.current = false;
+        // Erreur SSE - gestion silencieuse
 
         if (options.onError) {
           options.onError(event);
         }
 
-        // Tentative de reconnexion
+        // Nettoyer la connexion actuelle
+        if (eventSourceRef.current) {
+          eventSourceRef.current.close();
+          eventSourceRef.current = null;
+        }
+
+        // Tentative de reconnexion seulement si pas trop d'erreurs
         if (reconnectAttempts.current < maxReconnectAttempts) {
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
+          const delay = Math.min(2000 * Math.pow(2, reconnectAttempts.current), 10000);
           reconnectTimeoutRef.current = window.setTimeout(() => {
             reconnectAttempts.current++;
-            console.log(`Reconnecting SSE (attempt ${reconnectAttempts.current}/${maxReconnectAttempts})...`);
             connect();
           }, delay);
         } else {
@@ -86,6 +101,7 @@ export function useSSE(url: string, options: UseSSEOptions = {}) {
       eventSource.addEventListener('ping', (event) => {
         try {
           const data = JSON.parse(event.data);
+          // Ping SSE reçu silencieusement
           if (options.onPing) {
             options.onPing(data);
           }
@@ -108,6 +124,7 @@ export function useSSE(url: string, options: UseSSEOptions = {}) {
     } catch (err) {
       console.error('Failed to create EventSource:', err);
       setError('Erreur lors de la création de la connexion SSE');
+      isConnectingRef.current = false;
     }
   };
 
@@ -124,6 +141,7 @@ export function useSSE(url: string, options: UseSSEOptions = {}) {
 
     setIsConnected(false);
     reconnectAttempts.current = 0;
+    isConnectingRef.current = false;
   };
 
   useEffect(() => {
