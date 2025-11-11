@@ -150,7 +150,7 @@
   "storage": {
     "title": "Stockage",
     "description": "Gestion des pools de stockage et volumes",
-    "refresh_success": "Storages rafraîchis avec succès",
+    "refresh_success": "Stockage actualisé avec succès",
     "refresh_error": "Erreur lors du rafraîchissement des storages",
     "no_proxmox_config": "Aucune configuration Proxmox trouvée. Veuillez d'abord configurer votre connexion Proxmox dans les Paramètres."
   },
@@ -223,6 +223,9 @@
     "dark": "Sombre",
     "auto": "Automatique",
     "proxmox_config": "Configuration Proxmox",
+    "config_required_title": "Configuration Proxmox requise",
+    "config_required_message": "Pour afficher les données Proxmox, veuillez d'abord configurer votre connexion dans les Paramètres.",
+    "go_to_settings": "Aller aux Paramètres",
     "prometheus_config": "Configuration Prometheus",
     "notifications_config": "Configuration Notifications"
   },

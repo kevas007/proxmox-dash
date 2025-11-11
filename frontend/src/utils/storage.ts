@@ -4,6 +4,8 @@
  * Les autres données sont récupérées à la demande depuis l'API
  */
 
+import { apiPost } from './api';
+
 export interface UserData {
   username: string;
   token: string;
@@ -128,19 +130,15 @@ export const useProxmoxData = () => {
         throw new Error('Configuration Proxmox manquante');
       }
 
-      const response = await fetch('/api/v1/proxmox/fetch-data', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(config),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Erreur ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
+      // Utiliser apiPost pour utiliser la bonne URL de l'API (API_BASE_URL)
+      const data = await apiPost<{
+        success: boolean;
+        message?: string;
+        nodes?: any[];
+        vms?: any[];
+        lxc?: any[];
+        storages?: any[];
+      }>('/api/v1/proxmox/fetch-data', config);
 
       // Stocker les nouvelles données
       storage.setProxmoxData(data);

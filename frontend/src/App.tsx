@@ -22,9 +22,15 @@ import { seedProxmoxData } from './utils/frontendSeeders';
 import { TranslationProvider } from './hooks/useTranslation';
 
 function App() {
-  // Charger les seeders frontend en mode dev
+  // Charger les seeders frontend uniquement en mode dev
   useEffect(() => {
-    seedProxmoxData();
+    // Vérifier si on est en mode développement
+    const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
+    if (isDev) {
+      seedProxmoxData();
+    } else {
+      console.log('🚀 Mode production: aucune donnée de test ne sera chargée');
+    }
   }, []);
   const [currentSection, setCurrentSection] = useState('overview');
   const [isDark, setIsDark] = useState(() => {

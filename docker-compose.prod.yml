@@ -21,6 +21,8 @@ services:
       retries: 3
       start_period: 5s
     restart: unless-stopped
+    networks:
+      - proxmox-dash-network
 
   web:
     build:
@@ -41,6 +43,8 @@ services:
       retries: 3
       start_period: 5s
     restart: unless-stopped
+    networks:
+      - proxmox-dash-network
 
   mailhog:
     image: mailhog/mailhog:latest
@@ -53,8 +57,14 @@ services:
       timeout: 10s
       retries: 3
     restart: unless-stopped
+    networks:
+      - proxmox-dash-network
 
 volumes:
   data:
     driver: local
+
+networks:
+  proxmox-dash-network:
+    driver: bridge
 

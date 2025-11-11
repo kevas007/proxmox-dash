@@ -22,6 +22,8 @@ import { useToast } from '@/components/ui/Toast';
 import { useTranslation } from '@/hooks/useTranslation';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { Loader } from '@/components/ui/Loader';
+import { apiPost } from '@/utils/api';
+import { storage } from '@/utils/storage';
 
 interface LXCContainer {
   id: number;
@@ -96,17 +98,47 @@ export function LXC() {
         console.log('✅ Conteneurs LXC convertis:', convertedContainers);
         setLoading(false);
       } else {
+        const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+        const proxmoxConfig = storage.getProxmoxConfig();
+        
+        // En production, si Proxmox n'est pas configuré, ne pas charger de données mockées
+        if (isProduction && !proxmoxConfig) {
+          console.log('⚠️ Production: Proxmox non configuré, pas de données mockées');
+          setContainers([]);
+          setLoading(false);
+          return;
+        }
+        
         console.log('⚠️ Aucune donnée LXC trouvée dans localStorage - chargement des données mockées');
         loadMockData();
       }
     } catch (err) {
       console.error('❌ Erreur lors du chargement des conteneurs LXC:', err);
+      const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+      const proxmoxConfig = storage.getProxmoxConfig();
+      
+      // En production, si Proxmox n'est pas configuré, ne pas charger de données mockées
+      if (isProduction && !proxmoxConfig) {
+        setContainers([]);
+        setLoading(false);
+        return;
+      }
+      
       loadMockData();
     }
   };
 
-  // Charger les données mockées
+  // Charger les données mockées (uniquement en développement)
   const loadMockData = () => {
+    // Double vérification : ne jamais charger de données mockées en production
+    const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+    if (isProduction) {
+      console.warn('⚠️ Production: Tentative de chargement de données mockées bloquée');
+      setContainers([]);
+      setLoading(false);
+      return;
+    }
+    
     const mockContainers: LXCContainer[] = [
       {
         id: 1,
@@ -197,24 +229,20 @@ export function LXC() {
 
       const config = JSON.parse(savedConfig);
 
-      const response = await fetch('/api/v1/proxmox/fetch-data', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          url: config.url,
-          username: config.username,
-          secret: config.secret,
-          node: config.node
-        })
+      // Utiliser apiPost pour utiliser la bonne URL de l'API (API_BASE_URL)
+      const data = await apiPost<{
+        success: boolean;
+        message?: string;
+        nodes?: any[];
+        vms?: any[];
+        lxc?: any[];
+        storages?: any[];
+      }>('/api/v1/proxmox/fetch-data', {
+        url: config.url,
+        username: config.username,
+        secret: config.secret,
+        node: config.node
       });
-
-      if (!response.ok) {
-        throw new Error(`Erreur backend: ${response.status}`);
-      }
-
-      const data = await response.json();
 
       if (data.success) {
         localStorage.setItem('proxmoxNodes', JSON.stringify(data.nodes || []));
@@ -230,7 +258,8 @@ export function LXC() {
 
         success(t('common.success'), t('lxc.refresh_success') || 'Conteneurs LXC rafraîchis avec succès');
       } else {
-        error(t('common.error'), t('lxc.refresh_error') || 'Erreur lors du rafraîchissement des conteneurs LXC');
+        const errorMsg = data.message || t('lxc.refresh_error') || 'Erreur lors du rafraîchissement des conteneurs LXC';
+        error(t('common.error'), errorMsg);
       }
     } catch (err) {
       console.error('❌ Erreur lors du rafraîchissement des conteneurs LXC:', err);
@@ -331,14 +360,14 @@ export function LXC() {
       });
 
       if (response.ok) {
-        setContainers(prevContainers =>
-          prevContainers.map(c =>
-            c.id === container.id
-              ? { ...c, status: 'running' as const, uptime: 0 }
-              : c
-          )
-        );
-        success('Succès', `Conteneur ${container.name} démarré avec succès`);
+      setContainers(prevContainers =>
+        prevContainers.map(c =>
+          c.id === container.id
+            ? { ...c, status: 'running' as const, uptime: 0 }
+            : c
+        )
+      );
+      success('Succès', `Conteneur ${container.name} démarré avec succès`);
         setTimeout(() => {
           refreshContainers();
         }, 1500);
@@ -388,73 +417,24 @@ export function LXC() {
           });
 
           if (response.ok) {
-            setContainers(prevContainers =>
-              prevContainers.map(c =>
-                c.id === container.id
-                  ? { ...c, status: 'stopped' as const, uptime: 0, cpu_usage: 0, memory_usage: 0 }
-                  : c
-              )
-            );
-            success('Succès', `Conteneur ${container.name} arrêté avec succès`);
+      setContainers(prevContainers =>
+        prevContainers.map(c =>
+          c.id === container.id
+            ? { ...c, status: 'stopped' as const, uptime: 0, cpu_usage: 0, memory_usage: 0 }
+            : c
+        )
+      );
+      success('Succès', `Conteneur ${container.name} arrêté avec succès`);
             setTimeout(() => {
               refreshContainers();
             }, 1500);
           } else {
             throw new Error(`HTTP ${response.status}`);
           }
-        } catch (err) {
+    } catch (err) {
           console.error('Erreur arrêt conteneur:', err);
-          error('Erreur', `Impossible d'arrêter le conteneur ${container.name}`);
-        }
-      }
-    });
-  };
-
-  const handleContainerRestart = (container: LXCContainer) => {
-    setConfirmModal({
-      isOpen: true,
-      title: 'Confirmer le redémarrage',
-      message: `Êtes-vous sûr de vouloir redémarrer le conteneur ${container.name} ?\n\nLe conteneur sera temporairement indisponible.`,
-      variant: 'warning',
-      onConfirm: async () => {
-        try {
-          const savedConfig = localStorage.getItem('proxmoxConfig');
-          if (!savedConfig) {
-            error('Erreur', 'Configuration Proxmox manquante');
-            return;
-          }
-
-          const config = JSON.parse(savedConfig);
-          const base = config.url.replace(/\/$/, '');
-          
-          // Vérifier si c'est une URL de développement fictive
-          const isDevUrl = base.includes('proxmox-dev.local') || base.includes('localhost') || base.includes('127.0.0.1');
-          
-          if (isDevUrl) {
-            warning(
-              'Configuration de développement',
-              'Cette action nécessite une connexion Proxmox réelle. Veuillez configurer une connexion Proxmox réelle dans les Paramètres pour utiliser cette fonctionnalité.'
-            );
-            return;
-          }
-          
-          const response = await fetch(`${config.url}/api2/json/nodes/${container.node}/lxc/${container.vmid}/status/reboot`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `PVEAPIToken=${config.username}=${config.secret}`,
-              'Content-Type': 'application/json',
-            }
-          });
-
-          if (response.ok) {
-            success('Succès', `Conteneur ${container.name} en cours de redémarrage`);
-          } else {
-            throw new Error(`HTTP ${response.status}`);
-          }
-        } catch (err) {
-          console.error('Erreur redémarrage conteneur:', err);
-          error('Erreur', `Impossible de redémarrer le conteneur ${container.name}`);
-        }
+      error('Erreur', `Impossible d'arrêter le conteneur ${container.name}`);
+    }
       }
     });
   };
@@ -579,13 +559,13 @@ export function LXC() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
             {t('lxc.title')}
-          </h1>
-          <p className="text-slate-600 dark:text-slate-400">
+        </h1>
+        <p className="text-slate-600 dark:text-slate-400">
             {t('lxc.description')}
-          </p>
+        </p>
         </div>
         <Button onClick={refreshContainers}>
           <RefreshCw className="h-4 w-4 mr-2" />
@@ -693,15 +673,15 @@ export function LXC() {
                       <Edit className="h-4 w-4" />
                     </Button>
                     <div className="relative">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="p-1"
-                        onClick={() => handleContainerMore(container)}
-                        title="Plus d'actions"
-                      >
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="p-1"
+                      onClick={() => handleContainerMore(container)}
+                      title="Plus d'actions"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
                       {showMoreMenu === container.id && (
                         <>
                           <div 

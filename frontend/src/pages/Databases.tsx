@@ -24,7 +24,6 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
-import { useTranslation } from '@/hooks/useTranslation';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { Loader } from '@/components/ui/Loader';
 
@@ -50,7 +49,6 @@ interface DatabaseInstance {
 }
 
 export function Databases() {
-  const { t } = useTranslation();
   const [databases, setDatabases] = useState<DatabaseInstance[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -75,9 +73,20 @@ export function Databases() {
   // Charger les données Databases depuis localStorage
   const loadDatabasesData = () => {
     try {
-      // Pour l'instant, Databases n'est pas intégré avec Proxmox
-      // Charger les données mockées
-    const mockDatabases: DatabaseInstance[] = [
+      // Vérifier si on est en production
+      const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+      
+      // En production, ne pas charger de données mockées
+      if (isProduction) {
+        console.log('⚠️ Production: Databases n\'est pas encore intégré avec Proxmox');
+        setDatabases([]);
+        setLoading(false);
+        return;
+      }
+      
+      // En développement uniquement, charger les données mockées
+      console.log('⚠️ Développement: Chargement des données Databases mockées');
+      const mockDatabases: DatabaseInstance[] = [
       {
         id: 'mysql-01',
         name: 'MySQL Production',
@@ -178,8 +187,8 @@ export function Databases() {
       }
     ];
 
-      setDatabases(mockDatabases);
-      setLoading(false);
+        setDatabases(mockDatabases);
+        setLoading(false);
     } catch (err) {
       console.error('❌ Erreur lors du chargement des données Databases:', err);
       setLoading(false);
@@ -546,15 +555,15 @@ export function Databases() {
                       <Edit className="h-4 w-4" />
                     </Button>
                     <div className="relative">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="p-1"
-                        onClick={() => handleDatabaseMore(db)}
-                        title="Plus d'actions"
-                      >
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="p-1"
+                      onClick={() => handleDatabaseMore(db)}
+                      title="Plus d'actions"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
                       {showMoreMenu === db.id && (
                         <>
                           <div 

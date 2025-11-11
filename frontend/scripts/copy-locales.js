@@ -26,15 +26,15 @@ try {
   let copiedCount = 0;
   
   files.forEach(file => {
-    if (file.endsWith('.json')) {
-      const sourcePath = path.join(sourceDir, file);
-      const targetPath = path.join(targetDir, file);
-      fs.copyFileSync(sourcePath, targetPath);
+  if (file.endsWith('.json')) {
+    const sourcePath = path.join(sourceDir, file);
+    const targetPath = path.join(targetDir, file);
+    fs.copyFileSync(sourcePath, targetPath);
       console.log(`✅ Copié: ${file}`);
       copiedCount++;
-    }
-  });
-  
+  }
+});
+
   console.log(`✨ ${copiedCount} fichier(s) de traduction copié(s) avec succès!`);
 } catch (error) {
   console.error('❌ Erreur lors de la copie des traductions:', error);

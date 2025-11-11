@@ -25,7 +25,6 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
-import { useTranslation } from '@/hooks/useTranslation';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { Loader } from '@/components/ui/Loader';
 import { exportToCSV } from '@/utils/export';
@@ -51,7 +50,6 @@ interface Backup {
 }
 
 export function Backups() {
-  const { t } = useTranslation();
   const [backups, setBackups] = useState<Backup[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -75,9 +73,20 @@ export function Backups() {
   // Charger les données Backups depuis localStorage
   const loadBackupsData = () => {
     try {
-      // Pour l'instant, Backups n'est pas intégré avec Proxmox
-      // Charger les données mockées
-    const mockBackups: Backup[] = [
+      // Vérifier si on est en production
+      const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+      
+      // En production, ne pas charger de données mockées
+      if (isProduction) {
+        console.log('⚠️ Production: Backups n\'est pas encore intégré avec Proxmox');
+        setBackups([]);
+        setLoading(false);
+        return;
+      }
+      
+      // En développement uniquement, charger les données mockées
+      console.log('⚠️ Développement: Chargement des données Backups mockées');
+      const mockBackups: Backup[] = [
       {
         id: 'backup-vm-101-20240115',
         name: 'VM-101 Daily Backup',
@@ -163,8 +172,8 @@ export function Backups() {
       }
     ];
 
-      setBackups(mockBackups);
-      setLoading(false);
+        setBackups(mockBackups);
+        setLoading(false);
     } catch (err) {
       console.error('❌ Erreur lors du chargement des données Backups:', err);
       setLoading(false);
@@ -303,17 +312,17 @@ export function Backups() {
       message: `Êtes-vous sûr de vouloir supprimer la sauvegarde ${backup.name} ?\n\nCette action est irréversible.`,
       variant: 'danger',
       onConfirm: async () => {
-        try {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-          setBackups(prevBackups =>
-            prevBackups.filter(b => b.id !== backup.id)
-          );
+      setBackups(prevBackups =>
+        prevBackups.filter(b => b.id !== backup.id)
+      );
 
-          success('Succès', `Sauvegarde ${backup.name} supprimée avec succès`);
-        } catch (err) {
-          error('Erreur', `Impossible de supprimer la sauvegarde ${backup.name}`);
-        }
+      success('Succès', `Sauvegarde ${backup.name} supprimée avec succès`);
+    } catch (err) {
+      error('Erreur', `Impossible de supprimer la sauvegarde ${backup.name}`);
+    }
       }
     });
   };
@@ -325,13 +334,13 @@ export function Backups() {
       message: `Êtes-vous sûr de vouloir restaurer la sauvegarde ${backup.name} ?\n\nCette action va remplacer les données actuelles.`,
       variant: 'warning',
       onConfirm: async () => {
-        try {
-          await new Promise(resolve => setTimeout(resolve, 3000));
+    try {
+      await new Promise(resolve => setTimeout(resolve, 3000));
 
-          success('Succès', `Restauration de la sauvegarde ${backup.name} terminée avec succès`);
-        } catch (err) {
-          error('Erreur', `Impossible de restaurer la sauvegarde ${backup.name}`);
-        }
+      success('Succès', `Restauration de la sauvegarde ${backup.name} terminée avec succès`);
+    } catch (err) {
+      error('Erreur', `Impossible de restaurer la sauvegarde ${backup.name}`);
+    }
       }
     });
   };

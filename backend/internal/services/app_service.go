@@ -2,6 +2,8 @@ package services
 
 import (
 	"fmt"
+	"net"
+	"net/http"
 	"time"
 
 	"proxmox-dashboard/internal/models"
@@ -72,24 +74,60 @@ func (s *AppService) DeleteApp(id int) error {
 
 // CheckHealth vérifie la santé d'une application
 func (s *AppService) CheckHealth(app *models.App) (*models.HealthStatus, error) {
-	// Simuler une vérification de santé
-	status := &models.HealthStatus{
-		AppID:      app.ID,
-		Status:     "online",
-		Latency:    int64Ptr(100),
-		LastCheck:  time.Now(),
-		StatusCode: intPtr(200),
+	// Faire une vraie vérification de santé selon le type
+	startTime := time.Now()
+	var status string
+	var latency int64
+	var statusCode *int
+	var errMsg *string
+
+	if app.HealthType == "tcp" {
+		// Vérification TCP
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", app.Host, app.Port), 5*time.Second)
+		latency = time.Since(startTime).Milliseconds()
+
+		if err != nil {
+			status = "offline"
+			errorStr := err.Error()
+			errMsg = &errorStr
+		} else {
+			conn.Close()
+			status = "online"
+		}
+	} else {
+		// Vérification HTTP
+		url := fmt.Sprintf("%s://%s:%d%s", app.Protocol, app.Host, app.Port, app.HealthPath)
+		resp, err := http.Get(url)
+		latency = time.Since(startTime).Milliseconds()
+
+		if err != nil {
+			status = "offline"
+			errorStr := err.Error()
+			errMsg = &errorStr
+		} else {
+			defer resp.Body.Close()
+			statusCodeVal := resp.StatusCode
+			statusCode = &statusCodeVal
+
+			if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+				status = "online"
+			} else {
+				status = "offline"
+			}
+		}
 	}
 
-	return status, nil
-}
+	statusObj := &models.HealthStatus{
+		AppID:     app.ID,
+		Status:    status,
+		Latency:   &latency,
+		LastCheck: time.Now(),
+		Error:     errMsg,
+	}
 
-// int64Ptr retourne un pointeur vers un int64
-func int64Ptr(i int64) *int64 {
-	return &i
-}
+	if statusCode != nil {
+		statusObj.StatusCode = statusCode
+	}
 
-// intPtr retourne un pointeur vers un int
-func intPtr(i int) *int {
-	return &i
+	return statusObj, nil
 }

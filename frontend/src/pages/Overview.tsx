@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Server, Monitor, Container, Activity, HardDrive, Network, Cpu, MemoryStick, AlertTriangle, RefreshCw, Archive, Zap, Clock } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { apiPost } from '@/utils/api';
 
 export function Overview() {
   const { t } = useTranslation();
@@ -12,7 +13,7 @@ export function Overview() {
     vms: { total: 0, running: 0, stopped: 0 },
     lxc: { total: 0, running: 0, stopped: 0 },
     docker: { total: 0, running: 0, stopped: 0 },
-    storage: { used: 0, total: 100 },
+    storage: { used: 0, total: 0, usedGB: 0 }, // used = pourcentage, total = GB total, usedGB = GB utilisé
     network: { interfaces: 0, active: 0 },
     cluster: { cpu: 0, memory: 0, disk: 0 },
   });
@@ -161,12 +162,46 @@ export function Overview() {
       const savedLXC = localStorage.getItem('proxmoxLXC');
       const lxc = savedLXC ? JSON.parse(savedLXC) : [];
 
-      console.log('📊 Données Overview chargées:', { nodes, vms, lxc });
+      // Charger les storages (vraies données Proxmox)
+      const savedStorages = localStorage.getItem('proxmoxStorages');
+      const storages = savedStorages ? JSON.parse(savedStorages) : [];
+
+      // Charger les interfaces réseau (vraies données Proxmox)
+      const savedNetworks = localStorage.getItem('proxmoxNetworks');
+      const networks = savedNetworks ? JSON.parse(savedNetworks) : [];
+
+      console.log('📊 Données Overview chargées:', { 
+        nodes: { count: nodes.length, sample: nodes[0] },
+        vms: { count: vms.length, sample: vms[0], allStatuses: [...new Set(vms.map((v: any) => v.status))] },
+        lxc: { count: lxc.length, sample: lxc[0], allStatuses: [...new Set(lxc.map((c: any) => c.status))] },
+        storages: { count: storages.length, sample: storages[0] },
+        networks: { count: networks.length, sample: networks[0] }
+      });
+      
+      // Log détaillé des VMs et LXC pour déboguer
+      if (vms.length > 0) {
+        console.log('🖥️ VMs détaillées:', vms.map((v: any) => ({ id: v.id || v.vmid, name: v.name, status: v.status })));
+      } else {
+        console.warn('⚠️ Aucune VM trouvée dans localStorage');
+      }
+      
+      if (lxc.length > 0) {
+        console.log('🐳 LXC détaillés:', lxc.map((c: any) => ({ id: c.id || c.vmid, name: c.name, status: c.status })));
+      } else {
+        console.warn('⚠️ Aucun LXC trouvé dans localStorage');
+      }
 
       // Calculer les statistiques des nœuds
       const onlineNodes = nodes.filter((n: any) => n.status === 'online');
       const offlineNodes = nodes.filter((n: any) => n.status === 'offline');
       const maintenanceNodes = nodes.filter((n: any) => n.status === 'maintenance');
+      
+      console.log('📊 Statistiques nœuds calculées:', {
+        total: nodes.length,
+        online: onlineNodes.length,
+        offline: offlineNodes.length,
+        maintenance: maintenanceNodes.length
+      });
 
       // Calculer les moyennes du cluster
       let totalCpu = 0, totalMemory = 0, totalDisk = 0;
@@ -178,18 +213,64 @@ export function Overview() {
         });
       }
 
-      // Calculer le stockage total du cluster
+      // Calculer le stockage total du cluster depuis les vraies données Proxmox
+      // Les données de stockage Proxmox incluent déjà l'utilisation par les VMs, LXC, etc.
       let totalStorageUsed = 0, totalStorageTotal = 0;
-      nodes.forEach((node: any) => {
-        if (node.disk_usage && node.disk_usage > 0) {
-          // Estimation basée sur le pourcentage d'utilisation
-          const nodeStorage = 100; // Estimation en GB
-          totalStorageUsed += (node.disk_usage / 100) * nodeStorage;
-          totalStorageTotal += nodeStorage;
+      const storageMap = new Map<string, boolean>(); // Pour éviter les doublons de storages partagés
+      
+      if (storages.length > 0) {
+        storages.forEach((storage: any) => {
+          const storageId = storage.id || storage.name || 'unknown';
+          
+          // Les storages partagés (NFS, Ceph, iSCSI) ne doivent être comptés qu'une fois
+          // Les storages locaux (local, local-lvm) sont différents sur chaque nœud et doivent être additionnés
+          const isSharedStorage = storage.type === 'nfs' || storage.type === 'ceph' || storage.type === 'iscsi';
+          
+          if (isSharedStorage && storageMap.has(storageId)) {
+            // Storage partagé déjà compté, on le skip
+            return;
+          }
+          
+          storageMap.set(storageId, true);
+          
+          // Les données sont en GB depuis le backend
+          const totalSpace = parseFloat(storage.total_space) || 0;
+          const usedSpace = parseFloat(storage.used_space) || 0;
+          
+          // S'assurer que les valeurs sont valides
+          if (totalSpace > 0 && usedSpace >= 0) {
+            totalStorageTotal += totalSpace;
+            totalStorageUsed += usedSpace;
+          }
+        });
+        
+        console.log('💾 Stockage calculé:', {
+          storages: storages.length,
+          unique: storageMap.size,
+          totalGB: totalStorageTotal.toFixed(2),
+          usedGB: totalStorageUsed.toFixed(2),
+          percent: totalStorageTotal > 0 ? ((totalStorageUsed / totalStorageTotal) * 100).toFixed(2) : 0
+        });
+      } else {
+        // En production, ne pas utiliser de fallback - les données doivent provenir de Proxmox
+        const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+        if (isProduction) {
+          console.warn('⚠️ Production: Aucune donnée de stockage Proxmox trouvée. Veuillez configurer Proxmox et rafraîchir les données.');
+        } else {
+          console.warn('⚠️ Développement: Aucune donnée de stockage trouvée');
         }
-      });
+      }
 
-      setStats({
+      // Calculer le pourcentage d'utilisation du stockage (ne pas dépasser 100%)
+      const storageUsagePercent = totalStorageTotal > 0 
+        ? Math.min(100, Math.round((totalStorageUsed / totalStorageTotal) * 100))
+        : 0;
+
+      // Calculer les statistiques réseau depuis les vraies données
+      const activeNetworks = networks.filter((n: any) => n.status === 'up' || n.status === 'active' || n.active === true).length;
+      const totalNetworks = networks.length > 0 ? networks.length : onlineNodes.length; // Fallback sur les nœuds si pas de données réseau
+
+      const statsData = {
         nodes: {
           total: nodes.length,
           online: onlineNodes.length,
@@ -198,26 +279,59 @@ export function Overview() {
         },
         vms: {
           total: vms.length,
-          running: vms.filter((v: any) => v.status === 'running').length,
-          stopped: vms.filter((v: any) => v.status === 'stopped').length,
+          running: vms.filter((v: any) => {
+            const status = String(v.status || '').toLowerCase();
+            // Proxmox peut retourner différents statuts : running, stopped, paused, suspended, etc.
+            return status === 'running';
+          }).length,
+          stopped: vms.filter((v: any) => {
+            const status = String(v.status || '').toLowerCase();
+            // Inclure tous les statuts non-running comme stopped
+            return status !== 'running' && status !== '';
+          }).length,
         },
         lxc: {
           total: lxc.length,
-          running: lxc.filter((c: any) => c.status === 'running').length,
-          stopped: lxc.filter((c: any) => c.status === 'stopped').length,
+          running: lxc.filter((c: any) => {
+            const status = String(c.status || '').toLowerCase();
+            // Proxmox peut retourner différents statuts : running, stopped, paused, suspended, etc.
+            return status === 'running';
+          }).length,
+          stopped: lxc.filter((c: any) => {
+            const status = String(c.status || '').toLowerCase();
+            // Inclure tous les statuts non-running comme stopped
+            return status !== 'running' && status !== '';
+          }).length,
         },
         docker: { total: 0, running: 0, stopped: 0 }, // Pas de données Docker pour l'instant
         storage: {
-          used: totalStorageUsed,
-          total: totalStorageTotal
+          used: storageUsagePercent, // Pourcentage pour l'affichage
+          total: totalStorageTotal, // Total en GB pour le calcul
+          usedGB: totalStorageUsed // Utilisé en GB pour l'affichage
         },
-        network: { interfaces: nodes.length, active: onlineNodes.length },
+        network: { 
+          interfaces: totalNetworks, 
+          active: activeNetworks 
+        },
         cluster: {
           cpu: nodes.length > 0 ? Math.round(totalCpu / nodes.length) : 0,
           memory: nodes.length > 0 ? Math.round(totalMemory / nodes.length) : 0,
           disk: nodes.length > 0 ? Math.round(totalDisk / nodes.length) : 0,
         },
+      };
+      
+      console.log('📊 Statistiques finales calculées:', statsData);
+      console.log('📊 Détail VMs/LXC:', {
+        vmsTotal: vms.length,
+        vmsRunning: statsData.vms.running,
+        vmsStopped: statsData.vms.stopped,
+        vmsStatuses: vms.map((v: any) => ({ name: v.name, status: v.status })),
+        lxcTotal: lxc.length,
+        lxcRunning: statsData.lxc.running,
+        lxcStopped: statsData.lxc.stopped,
+        lxcStatuses: lxc.map((c: any) => ({ name: c.name, status: c.status }))
       });
+      setStats(statsData);
     } catch (err) {
       console.error('❌ Erreur lors du chargement des statistiques:', err);
     }
@@ -238,30 +352,83 @@ export function Overview() {
       const proxmoxConfig = JSON.parse(config);
 
       // Appeler l'API backend pour récupérer les données
-      const response = await fetch('/api/v1/proxmox/fetch-data', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(proxmoxConfig),
+      // Utiliser apiPost pour utiliser la bonne URL de l'API (API_BASE_URL)
+      const data = await apiPost<{
+        success: boolean;
+        message?: string;
+        nodes?: any[];
+        vms?: any[];
+        lxc?: any[];
+        storages?: any[];
+        networks?: any[];
+      }>('/api/v1/proxmox/fetch-data', proxmoxConfig);
+
+      console.log('📥 Réponse complète du backend:', {
+        success: data.success,
+        message: data.message,
+        nodesCount: data.nodes?.length || 0,
+        vmsCount: data.vms?.length || 0,
+        lxcCount: data.lxc?.length || 0,
+        storagesCount: data.storages?.length || 0,
+        networksCount: data.networks?.length || 0,
+        nodesSample: data.nodes?.[0],
+        vmsSample: data.vms?.[0],
+        lxcSample: data.lxc?.[0],
+        storagesSample: data.storages?.[0],
+        networksSample: data.networks?.[0]
       });
-
-      if (!response.ok) {
-        throw new Error(`Erreur ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
 
       if (data.success) {
         // Sauvegarder les nouvelles données
-        localStorage.setItem('proxmoxNodes', JSON.stringify(data.nodes || []));
-        localStorage.setItem('proxmoxVMs', JSON.stringify(data.vms || []));
-        localStorage.setItem('proxmoxLXC', JSON.stringify(data.lxc || []));
+        const nodesData = data.nodes || [];
+        const vmsData = data.vms || [];
+        const lxcData = data.lxc || [];
+        const storagesData = data.storages || [];
+        const networksData = data.networks || [];
+        
+        console.log('💾 Sauvegarde des données dans localStorage:', {
+          nodes: nodesData.length,
+          vms: vmsData.length,
+          lxc: lxcData.length,
+          storages: storagesData.length,
+          networks: networksData.length
+        });
+        
+        // Toujours sauvegarder, même si vide, pour éviter les anciennes données obsolètes
+        localStorage.setItem('proxmoxNodes', JSON.stringify(nodesData));
+        localStorage.setItem('proxmoxVMs', JSON.stringify(vmsData));
+        localStorage.setItem('proxmoxLXC', JSON.stringify(lxcData));
+        
+        if (storagesData.length > 0) {
+          localStorage.setItem('proxmoxStorages', JSON.stringify(storagesData));
+          console.log('💾 Storages sauvegardés:', storagesData.length, 'storages');
+        } else {
+          console.warn('⚠️ Aucune donnée de stockage dans la réponse - nettoyage localStorage');
+          localStorage.removeItem('proxmoxStorages'); // Nettoyer les anciennes données
+        }
+        
+        if (networksData.length > 0) {
+          localStorage.setItem('proxmoxNetworks', JSON.stringify(networksData));
+          console.log('🌐 Réseaux sauvegardés:', networksData.length, 'interfaces');
+        } else {
+          console.warn('⚠️ Aucune donnée réseau dans la réponse - nettoyage localStorage');
+          localStorage.removeItem('proxmoxNetworks'); // Nettoyer les anciennes données
+        }
 
-        // Recharger les statistiques
+        console.log('✅ Données Proxmox rafraîchies avec succès:', {
+          nodes: nodesData.length,
+          vms: vmsData.length,
+          lxc: lxcData.length,
+          storages: storagesData.length,
+          networks: networksData.length
+        });
+        
+        // Recharger les statistiques après sauvegarde
         loadStats();
-
-        console.log('✅ Données Proxmox rafraîchies avec succès');
+      } else {
+        // Afficher le message d'erreur du backend
+        const errorMsg = data.message || 'Erreur lors du rafraîchissement des données Proxmox';
+        console.error('❌ Erreur Proxmox:', errorMsg);
       }
     } catch (error) {
       console.error('❌ Erreur lors du rafraîchissement:', error);
@@ -271,20 +438,51 @@ export function Overview() {
   };
 
   useEffect(() => {
+    // Charger les statistiques au démarrage
     loadStats();
     loadRecentEvents();
+    
+    // Vérifier si les données sont disponibles
+    const checkData = () => {
+      const nodes = localStorage.getItem('proxmoxNodes');
+      const vms = localStorage.getItem('proxmoxVMs');
+      const lxc = localStorage.getItem('proxmoxLXC');
+      const storages = localStorage.getItem('proxmoxStorages');
+      const networks = localStorage.getItem('proxmoxNetworks');
+      
+      console.log('🔍 Vérification des données au démarrage:', {
+        nodes: nodes ? JSON.parse(nodes).length : 0,
+        vms: vms ? JSON.parse(vms).length : 0,
+        lxc: lxc ? JSON.parse(lxc).length : 0,
+        storages: storages ? JSON.parse(storages).length : 0,
+        networks: networks ? JSON.parse(networks).length : 0
+      });
+      
+      // Si aucune donnée n'est disponible, suggérer de rafraîchir
+      if (!nodes && !vms && !lxc) {
+        const proxmoxConfig = localStorage.getItem('proxmoxConfig');
+        if (proxmoxConfig) {
+          console.warn('⚠️ Configuration Proxmox trouvée mais aucune donnée. Utilisez le bouton "Rafraîchir" pour charger les données.');
+        }
+      }
+    };
+    
+    checkData();
   }, []);
 
   // Écouter les mises à jour des données Proxmox
   useEffect(() => {
-    const handleProxmoxDataUpdate = () => {
-      console.log('🔄 Mise à jour des données Proxmox détectée pour Overview');
-      loadStats();
-      generateEventsFromData();
+    const handleProxmoxDataUpdate = (event: any) => {
+      console.log('🔄 Mise à jour des données Proxmox détectée pour Overview', event.detail);
+      // Recharger les statistiques immédiatement
+      setTimeout(() => {
+        loadStats();
+        generateEventsFromData();
+      }, 100); // Petit délai pour s'assurer que localStorage est à jour
     };
 
-    window.addEventListener('proxmoxDataUpdated', handleProxmoxDataUpdate);
-    return () => window.removeEventListener('proxmoxDataUpdated', handleProxmoxDataUpdate);
+    window.addEventListener('proxmoxDataUpdated', handleProxmoxDataUpdate as EventListener);
+    return () => window.removeEventListener('proxmoxDataUpdated', handleProxmoxDataUpdate as EventListener);
   }, []);
 
   // Formater le temps relatif
@@ -326,6 +524,66 @@ export function Overview() {
           <span>{refreshing ? t('common.loading') : t('common.refresh')}</span>
         </button>
       </div>
+
+      {/* Message informatif si aucune donnée */}
+      {((stats.nodes.total === 0 && stats.vms.total === 0 && stats.lxc.total === 0) || 
+       (stats.vms.total === 0 && stats.lxc.total === 0 && stats.storage.total === 0)) && (
+        <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
+          <CardContent className="p-4">
+            <div className="flex items-start space-x-3">
+              <AlertTriangle className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
+                  {stats.nodes.total === 0 ? 'Aucune donnée Proxmox disponible' : 'Données VMs/LXC/Storage manquantes'}
+                </h3>
+                <div className="text-sm text-blue-800 dark:text-blue-200 mb-2">
+                  {stats.nodes.total === 0 ? (
+                    <p>Les données n'ont pas encore été chargées depuis Proxmox. Cliquez sur le bouton "Rafraîchir" pour charger les données de votre cluster Proxmox.</p>
+                  ) : (
+                    <div>
+                      <p className="mb-2">Les données VMs, LXC ou Storage semblent manquantes. Vérifiez :</p>
+                      <ul className="list-disc list-inside space-y-1 ml-2">
+                        <li>Que votre cluster Proxmox contient bien des VMs/LXC</li>
+                        <li>Que la configuration Proxmox est correcte dans les Paramètres</li>
+                        <li>Que les logs du backend ne montrent pas d'erreurs</li>
+                        <li>Ouvrez la console du navigateur (F12) pour voir les détails</li>
+                      </ul>
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2 mt-2">
+                  <Button
+                    onClick={refreshData}
+                    disabled={refreshing}
+                    size="sm"
+                    variant="outline"
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+                    {refreshing ? 'Chargement...' : 'Rafraîchir maintenant'}
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      console.log('🔍 État actuel de localStorage:', {
+                        nodes: localStorage.getItem('proxmoxNodes') ? JSON.parse(localStorage.getItem('proxmoxNodes')!).length : 0,
+                        vms: localStorage.getItem('proxmoxVMs') ? JSON.parse(localStorage.getItem('proxmoxVMs')!).length : 0,
+                        lxc: localStorage.getItem('proxmoxLXC') ? JSON.parse(localStorage.getItem('proxmoxLXC')!).length : 0,
+                        storages: localStorage.getItem('proxmoxStorages') ? JSON.parse(localStorage.getItem('proxmoxStorages')!).length : 0,
+                        networks: localStorage.getItem('proxmoxNetworks') ? JSON.parse(localStorage.getItem('proxmoxNetworks')!).length : 0,
+                        config: localStorage.getItem('proxmoxConfig') ? 'présente' : 'manquante'
+                      });
+                      loadStats();
+                    }}
+                    size="sm"
+                    variant="outline"
+                  >
+                    🔍 Vérifier localStorage
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Graphiques de performance du cluster */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
@@ -518,12 +776,21 @@ export function Overview() {
             <div className="mt-2">
               <div className="w-full bg-slate-200 rounded-full h-2 dark:bg-slate-700">
                 <div
-                  className="bg-primary-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${stats.storage.used}%` }}
+                  className={`h-2 rounded-full transition-all duration-300 ${
+                    stats.storage.used >= 90 ? 'bg-red-500' :
+                    stats.storage.used >= 75 ? 'bg-yellow-500' : 'bg-green-500'
+                  }`}
+                  style={{ width: `${Math.min(stats.storage.used, 100)}%` }}
                 />
               </div>
               <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                {stats.storage.used} TB / {stats.storage.total} TB utilisés
+                {(() => {
+                  const formatSize = (gb: number) => {
+                    if (gb >= 1024) return `${(gb / 1024).toFixed(1)} TB`;
+                    return `${gb.toFixed(1)} GB`;
+                  };
+                  return `${formatSize(stats.storage.usedGB)} / ${formatSize(stats.storage.total)} utilisés`;
+                })()}
               </p>
             </div>
           </CardContent>

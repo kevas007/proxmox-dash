@@ -1,6 +1,10 @@
 import { authManager } from './auth';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+// En production Docker, nginx proxy les requêtes /api vers le backend
+// Donc on utilise une URL vide pour les URLs relatives
+// En développement, Vite proxy aussi /api vers localhost:8080 (voir vite.config.ts)
+// Si VITE_API_URL est défini, on l'utilise (priorité)
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 export interface ApiResponse<T> {
   data?: T;

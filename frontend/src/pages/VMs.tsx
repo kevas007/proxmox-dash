@@ -23,6 +23,9 @@ import { useToast } from '@/components/ui/Toast';
 import { useTranslation } from '@/hooks/useTranslation';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { Loader } from '@/components/ui/Loader';
+import { apiPost } from '@/utils/api';
+import { ProxmoxConfigRequired } from '@/components/ProxmoxConfigRequired';
+import { storage } from '@/utils/storage';
 
 interface VM {
   id: number;
@@ -88,21 +91,21 @@ export function VMs() {
           const tags = vm.tags ? vm.tags.split(',') : ['proxmox'];
           
           return {
-            id: index + 1,
-            name: vm.name || `VM-${vm.id}`,
+          id: index + 1,
+          name: vm.name || `VM-${vm.id}`,
             status: vm.status === 'running' ? 'running' : vm.status === 'stopped' ? 'stopped' : vm.status === 'paused' ? 'paused' : 'stopped',
             vmid: vm.id || vm.vmid,
-            node: vm.node || 'unknown',
+          node: vm.node || 'unknown',
             cpu_cores: maxcpu,
             memory: memoryMB,
             disk: diskGB,
-            cpu_usage: vm.cpu_usage || 0,
-            memory_usage: vm.memory_usage || 0,
+          cpu_usage: vm.cpu_usage || 0,
+          memory_usage: vm.memory_usage || 0,
             disk_usage: vm.disk_usage || 0,
-            uptime: vm.uptime || 0,
+          uptime: vm.uptime || 0,
             os: vm.ostype || 'Linux',
             owner: vm.owner || 'admin',
-            created_at: vm.last_update || new Date().toISOString(),
+          created_at: vm.last_update || new Date().toISOString(),
             tags: tags
           };
         });
@@ -111,17 +114,47 @@ export function VMs() {
         console.log('✅ VMs converties:', convertedVMs);
         setLoading(false);
       } else {
+        const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+        const proxmoxConfig = storage.getProxmoxConfig();
+        
+        // En production, si Proxmox n'est pas configuré, ne pas charger de données mockées
+        if (isProduction && !proxmoxConfig) {
+          console.log('⚠️ Production: Proxmox non configuré, pas de données mockées');
+          setVMs([]);
+          setLoading(false);
+          return;
+        }
+        
         console.log('⚠️ Aucune donnée VMs trouvée dans localStorage - chargement des données mockées');
         loadMockData();
       }
     } catch (err) {
       console.error('❌ Erreur lors du chargement des VMs:', err);
+      const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+      const proxmoxConfig = storage.getProxmoxConfig();
+      
+      // En production, si Proxmox n'est pas configuré, ne pas charger de données mockées
+      if (isProduction && !proxmoxConfig) {
+        setVMs([]);
+        setLoading(false);
+        return;
+      }
+      
       loadMockData();
     }
   };
 
-  // Charger les données mockées
+  // Charger les données mockées (uniquement en développement)
   const loadMockData = () => {
+    // Double vérification : ne jamais charger de données mockées en production
+    const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+    if (isProduction) {
+      console.warn('⚠️ Production: Tentative de chargement de données mockées bloquée');
+      setVMs([]);
+      setLoading(false);
+      return;
+    }
+    
     const mockVMs: VM[] = [
       {
         id: 1,
@@ -196,24 +229,21 @@ export function VMs() {
 
       const config = JSON.parse(savedConfig);
 
-      const response = await fetch('/api/v1/proxmox/fetch-data', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          url: config.url,
-          username: config.username,
-          secret: config.secret,
-          node: config.node
-        })
+      // Utiliser apiPost pour utiliser la bonne URL de l'API (API_BASE_URL)
+      const data = await apiPost<{
+        success: boolean;
+        message?: string;
+        nodes?: any[];
+        vms?: any[];
+        lxc?: any[];
+        storages?: any[];
+        networks?: any[];
+      }>('/api/v1/proxmox/fetch-data', {
+        url: config.url,
+        username: config.username,
+        secret: config.secret,
+        node: config.node
       });
-
-      if (!response.ok) {
-        throw new Error(`Erreur backend: ${response.status}`);
-      }
-
-      const data = await response.json();
 
       if (data.success) {
         localStorage.setItem('proxmoxNodes', JSON.stringify(data.nodes || []));
@@ -232,7 +262,8 @@ export function VMs() {
 
         success(t('common.success'), 'VMs rafraîchies avec succès');
       } else {
-        error(t('common.error'), 'Erreur lors du rafraîchissement des VMs');
+        const errorMsg = data.message || 'Erreur lors du rafraîchissement des VMs';
+        error(t('common.error'), errorMsg);
       }
     } catch (err) {
       console.error('❌ Erreur lors du rafraîchissement des VMs:', err);
@@ -360,13 +391,13 @@ export function VMs() {
       console.log('Réponse Proxmox:', responseData);
 
       if (response.ok) {
-        setVMs(prevVMs =>
-          prevVMs.map(v =>
-            v.id === vm.id
-              ? { ...v, status: 'running' as const, uptime: 0 }
-              : v
-          )
-        );
+      setVMs(prevVMs =>
+        prevVMs.map(v =>
+          v.id === vm.id
+            ? { ...v, status: 'running' as const, uptime: 0 }
+            : v
+        )
+      );
         success('Succès', `VM ${vm.name} en cours de démarrage`);
         // Rafraîchir les données après 2 secondes
         setTimeout(() => {
@@ -390,7 +421,7 @@ export function VMs() {
       message: `Êtes-vous sûr de vouloir arrêter la VM ${vm.name} ?`,
       variant: 'warning',
       onConfirm: async () => {
-        try {
+    try {
           const savedConfig = localStorage.getItem('proxmoxConfig');
           if (!savedConfig) {
             error('Erreur', 'Configuration Proxmox manquante. Veuillez configurer Proxmox dans les Paramètres.');
@@ -425,13 +456,13 @@ export function VMs() {
           console.log('Réponse Proxmox:', responseData);
 
           if (response.ok) {
-            setVMs(prevVMs =>
-              prevVMs.map(v =>
-                v.id === vm.id
-                  ? { ...v, status: 'stopped' as const, uptime: 0, cpu_usage: 0, memory_usage: 0 }
-                  : v
-              )
-            );
+      setVMs(prevVMs =>
+        prevVMs.map(v =>
+          v.id === vm.id
+            ? { ...v, status: 'stopped' as const, uptime: 0, cpu_usage: 0, memory_usage: 0 }
+            : v
+        )
+      );
             success('Succès', `VM ${vm.name} en cours d'arrêt`);
             // Rafraîchir les données après 2 secondes
             setTimeout(() => {
@@ -445,7 +476,7 @@ export function VMs() {
           console.error('Erreur arrêt VM:', err);
           const errorMessage = err.message || 'Erreur de connexion à Proxmox';
           error('Erreur', `Impossible d'arrêter la VM ${vm.name}: ${errorMessage}`);
-        }
+    }
       }
     });
   };
@@ -486,14 +517,14 @@ export function VMs() {
       console.log('Réponse Proxmox:', responseData);
 
       if (response.ok) {
-        setVMs(prevVMs =>
-          prevVMs.map(v =>
-            v.id === vm.id
-              ? { ...v, status: 'paused' as const }
-              : v
-          )
-        );
-        success('Succès', `VM ${vm.name} mise en pause`);
+      setVMs(prevVMs =>
+        prevVMs.map(v =>
+          v.id === vm.id
+            ? { ...v, status: 'paused' as const }
+            : v
+        )
+      );
+      success('Succès', `VM ${vm.name} mise en pause`);
         // Rafraîchir les données après 2 secondes
         setTimeout(() => {
           refreshVMs();
@@ -516,7 +547,7 @@ export function VMs() {
       message: `Êtes-vous sûr de vouloir redémarrer la VM ${vm.name} ?\n\nLa VM sera temporairement indisponible.`,
       variant: 'warning',
       onConfirm: async () => {
-        try {
+    try {
           const savedConfig = localStorage.getItem('proxmoxConfig');
           if (!savedConfig) {
             error('Erreur', 'Configuration Proxmox manquante. Veuillez configurer Proxmox dans les Paramètres.');
@@ -551,13 +582,13 @@ export function VMs() {
           console.log('Réponse Proxmox:', responseData);
 
           if (response.ok) {
-            setVMs(prevVMs =>
-              prevVMs.map(v =>
-                v.id === vm.id
-                  ? { ...v, status: 'running' as const, uptime: 0 }
-                  : v
-              )
-            );
+      setVMs(prevVMs =>
+        prevVMs.map(v =>
+          v.id === vm.id
+            ? { ...v, status: 'running' as const, uptime: 0 }
+            : v
+        )
+      );
             success('Succès', `VM ${vm.name} en cours de redémarrage`);
             // Rafraîchir les données après 3 secondes
             setTimeout(() => {
@@ -571,7 +602,7 @@ export function VMs() {
           console.error('Erreur redémarrage VM:', err);
           const errorMessage = err.message || 'Erreur de connexion à Proxmox';
           error('Erreur', `Impossible de redémarrer la VM ${vm.name}: ${errorMessage}`);
-        }
+    }
       }
     });
   };
@@ -700,16 +731,26 @@ export function VMs() {
     );
   }
 
+  // Vérifier si Proxmox est configuré
+  const proxmoxConfig = storage.getProxmoxConfig();
+  const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+
+  // En production, si Proxmox n'est pas configuré, ne rien afficher
+  if (isProduction && !proxmoxConfig) {
+    return null;
+  }
+
   return (
     <div className="space-y-6">
+      <ProxmoxConfigRequired />
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
             {t('vms.title') || 'Machines virtuelles'}
-          </h1>
-          <p className="text-slate-600 dark:text-slate-400">
+        </h1>
+        <p className="text-slate-600 dark:text-slate-400">
             {t('vms.description') || 'Gestion et monitoring des VMs'}
-          </p>
+        </p>
         </div>
         <Button onClick={refreshVMs} variant="outline" size="sm">
           <RotateCcw className="h-4 w-4 mr-2" />
@@ -851,15 +892,15 @@ export function VMs() {
                       <Edit className="h-4 w-4" />
                     </Button>
                     <div className="relative">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="p-1"
-                        onClick={() => handleVMMore(vm)}
-                        title="Plus d'actions"
-                      >
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="p-1"
+                      onClick={() => handleVMMore(vm)}
+                      title="Plus d'actions"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
                       {showMoreMenu === vm.id && (
                         <>
                           <div 
@@ -926,7 +967,7 @@ export function VMs() {
               </div>
 
               {/* Utilisation des ressources (toujours affichée) */}
-              <div className="space-y-3">
+                <div className="space-y-3">
                   {/* CPU */}
                   <div>
                     <div className="flex items-center justify-between text-sm mb-1">
@@ -1001,57 +1042,57 @@ export function VMs() {
                   ))
                 ) : (
                   <span className="text-xs text-slate-400 dark:text-slate-500">Aucun tag</span>
-                )}
+              )}
               </div>
 
               {/* Actions */}
               <div className="pt-3 border-t border-slate-200 dark:border-slate-700 -mx-6 px-6">
                 <div className="flex flex-wrap gap-2 w-full">
-                  {vm.status === 'running' ? (
-                    <>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 min-w-[80px] text-xs px-2 py-2 flex items-center justify-center"
-                        onClick={() => handleVMPause(vm)}
-                      >
-                        <Pause className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
-                        <span>Pause</span>
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 min-w-[80px] text-xs px-2 py-2 flex items-center justify-center"
-                        onClick={() => handleVMStop(vm)}
-                      >
-                        <Square className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
-                        <span>Arrêter</span>
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 min-w-[100px] text-xs px-2 py-2 flex items-center justify-center"
-                        onClick={() => handleVMRestart(vm)}
-                        title="Redémarrer"
-                      >
-                        <RotateCcw className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
-                        <span className="whitespace-nowrap">Redémarrer</span>
-                      </Button>
-                    </>
-                  ) : (
+                {vm.status === 'running' ? (
+                  <>
                     <Button
                       variant="outline"
                       size="sm"
-                      className="flex-1 min-w-[80px] text-xs px-2 py-2 flex items-center justify-center"
-                      onClick={() => handleVMStart(vm)}
+                        className="flex-1 min-w-[80px] text-xs px-2 py-2 flex items-center justify-center"
+                      onClick={() => handleVMPause(vm)}
                     >
-                      <Play className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
-                      <span>Démarrer</span>
+                        <Pause className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
+                        <span>Pause</span>
                     </Button>
-                  )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                        className="flex-1 min-w-[80px] text-xs px-2 py-2 flex items-center justify-center"
+                      onClick={() => handleVMStop(vm)}
+                    >
+                        <Square className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
+                        <span>Arrêter</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                        className="flex-1 min-w-[100px] text-xs px-2 py-2 flex items-center justify-center"
+                      onClick={() => handleVMRestart(vm)}
+                        title="Redémarrer"
+                    >
+                        <RotateCcw className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
+                        <span className="whitespace-nowrap">Redémarrer</span>
+                    </Button>
+                  </>
+                ) : (
                   <Button
                     variant="outline"
                     size="sm"
+                      className="flex-1 min-w-[80px] text-xs px-2 py-2 flex items-center justify-center"
+                    onClick={() => handleVMStart(vm)}
+                  >
+                      <Play className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
+                      <span>Démarrer</span>
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
                     className="flex-1 min-w-[80px] text-xs px-2 py-2 flex items-center justify-center"
                     onClick={() => handleVMConsole(vm)}
                   >
@@ -1062,11 +1103,11 @@ export function VMs() {
                     variant="outline"
                     size="sm"
                     className="flex-1 min-w-[80px] text-xs px-2 py-2 flex items-center justify-center"
-                    onClick={() => handleVMConfig(vm)}
-                  >
+                  onClick={() => handleVMConfig(vm)}
+                >
                     <Settings className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
                     <span>Config</span>
-                  </Button>
+                </Button>
                 </div>
               </div>
 

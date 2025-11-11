@@ -226,24 +226,20 @@ export function Settings() {
       console.log('🔄 Récupération des données Proxmox via le backend...');
 
       // Envoyer la configuration Proxmox au backend pour qu'il fasse les appels
-      const response = await fetch('/api/v1/proxmox/fetch-data', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          url: proxmoxConfig.url,
-          username: proxmoxConfig.username,
-          secret: proxmoxConfig.secret,
-          node: proxmoxConfig.node
-        })
+      // Utiliser apiPost pour utiliser la bonne URL de l'API (API_BASE_URL)
+      const data = await apiPost<{
+        success: boolean;
+        message?: string;
+        nodes?: any[];
+        vms?: any[];
+        lxc?: any[];
+        storages?: any[];
+      }>('/api/v1/proxmox/fetch-data', {
+        url: proxmoxConfig.url,
+        username: proxmoxConfig.username,
+        secret: proxmoxConfig.secret,
+        node: proxmoxConfig.node
       });
-
-      if (!response.ok) {
-        throw new Error(`Erreur backend: ${response.status}`);
-      }
-
-      const data = await response.json();
       console.log('📊 Données Proxmox récupérées via backend:', data);
 
       if (data.success) {
@@ -266,7 +262,11 @@ export function Settings() {
           detail: { nodes: data.nodes, vms: data.vms, lxc: data.lxc }
         }));
       } else {
-        throw new Error(data.message || 'Erreur lors de la récupération des données');
+        // Afficher le message d'erreur du backend
+        const errorMsg = data.message || 'Erreur lors de la récupération des données Proxmox';
+        error('Erreur', errorMsg);
+        console.error('❌ Erreur Proxmox:', errorMsg);
+        return; // Ne pas lancer d'exception, juste afficher l'erreur
       }
 
     } catch (err) {

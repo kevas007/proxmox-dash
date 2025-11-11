@@ -29,7 +29,7 @@ const loadTranslations = async (language: Language): Promise<TranslationData> =>
   ];
 
   for (const path of paths) {
-    try {
+  try {
       const response = await fetch(path, {
         cache: 'no-cache',
         headers: {
@@ -48,7 +48,7 @@ const loadTranslations = async (language: Language): Promise<TranslationData> =>
   }
 
   console.error(`❌ Impossible de charger les traductions ${language} depuis aucun chemin:`, paths);
-  return {};
+    return {};
 };
 
 // Initialiser les traductions

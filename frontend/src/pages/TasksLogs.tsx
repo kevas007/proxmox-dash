@@ -57,9 +57,21 @@ export function TasksLogs() {
   // Charger les données TasksLogs depuis localStorage
   const loadTasksLogsData = () => {
     try {
-      // Pour l'instant, TasksLogs n'est pas intégré avec Proxmox
-      // Charger les données mockées
-    const mockTasks: Task[] = [
+      // Vérifier si on est en production
+      const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+      
+      // En production, ne pas charger de données mockées
+      if (isProduction) {
+        console.log('⚠️ Production: TasksLogs n\'est pas encore intégré avec Proxmox');
+        setTasks([]);
+        setLogs([]);
+        setLoading(false);
+        return;
+      }
+      
+      // En développement uniquement, charger les données mockées
+      console.log('⚠️ Développement: Chargement des données TasksLogs mockées');
+      const mockTasks: Task[] = [
       {
         id: 1,
         name: 'Sauvegarde VM-101',
@@ -151,9 +163,9 @@ export function TasksLogs() {
       }
     ];
 
-      setTasks(mockTasks);
-      setLogs(mockLogs);
-      setLoading(false);
+        setTasks(mockTasks);
+        setLogs(mockLogs);
+        setLoading(false);
     } catch (err) {
       console.error('❌ Erreur lors du chargement des données TasksLogs:', err);
       setLoading(false);

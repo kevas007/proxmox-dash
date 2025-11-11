@@ -4,8 +4,9 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
-	"math/rand"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -215,12 +216,45 @@ func (h *Handlers) GetHealthHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Simuler une vérification HTTP
+	// Faire une vraie vérification HTTP
+	startTime := time.Now()
+	resp, err := http.Get(url)
+	latency := time.Since(startTime).Milliseconds()
+
+	var status string
+	var statusCode *int
+
+	if err != nil {
+		status = "offline"
+		errorMsg := err.Error()
+		result := map[string]interface{}{
+			"url":       url,
+			"status":    status,
+			"latency":   latency,
+			"timestamp": time.Now().Unix(),
+			"error":     errorMsg,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+		return
+	}
+	defer resp.Body.Close()
+
+	statusCodeVal := resp.StatusCode
+	statusCode = &statusCodeVal
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		status = "online"
+	} else {
+		status = "offline"
+	}
+
 	result := map[string]interface{}{
-		"url":       url,
-		"status":    "ok",
-		"latency":   100,
-		"timestamp": time.Now().Unix(),
+		"url":         url,
+		"status":      status,
+		"latency":     latency,
+		"status_code": statusCode,
+		"timestamp":   time.Now().Unix(),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -237,12 +271,36 @@ func (h *Handlers) GetHealthTCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Simuler une vérification TCP
+	// Faire une vraie vérification TCP
+	startTime := time.Now()
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), 5*time.Second)
+	latency := time.Since(startTime).Milliseconds()
+
+	var status string
+	if err != nil {
+		status = "offline"
+		errorMsg := err.Error()
+		result := map[string]interface{}{
+			"host":      host,
+			"port":      port,
+			"status":    status,
+			"latency":   latency,
+			"timestamp": time.Now().Unix(),
+			"error":     errorMsg,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+		return
+	}
+	defer conn.Close()
+
+	status = "online"
+
 	result := map[string]interface{}{
 		"host":      host,
 		"port":      port,
-		"status":    "ok",
-		"latency":   50,
+		"status":    status,
+		"latency":   latency,
 		"timestamp": time.Now().Unix(),
 	}
 
@@ -574,21 +632,75 @@ func (h *Handlers) FetchProxmoxData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Créer le token d'authentification Proxmox
-	// Le format correct est: PVEAPIToken=username!tokenname=secret
-	token := fmt.Sprintf("PVEAPIToken=%s=%s", config.Username, config.Secret)
-	fmt.Printf("🔑 Token created: [MASKED]\n")
+	// Le format dépend du type d'authentification :
+	// - Pour un token API: PVEAPIToken=username!tokenname=secret
+	// - Pour un mot de passe: username@realm:password (format ticket)
+	// Si le username contient "!", c'est probablement un token API au format username!tokenname
+	var token string
+	if strings.Contains(config.Username, "!") {
+		// Le username est au format username!tokenname, donc c'est un token API
+		// Format: PVEAPIToken=username!tokenname=secret
+		token = fmt.Sprintf("PVEAPIToken=%s=%s", config.Username, config.Secret)
+		fmt.Printf("🔑 Token created: [MASKED] (format: API Token - username!tokenname=secret)\n")
+	} else if strings.Contains(config.Secret, "!") {
+		// Le secret contient "!", donc c'est un token API au format username!tokenname=secret
+		token = fmt.Sprintf("PVEAPIToken=%s", config.Secret)
+		fmt.Printf("🔑 Token created: [MASKED] (format: API Token - secret contains !)\n")
+	} else {
+		// C'est probablement un mot de passe, on utilise le format ticket
+		// Pour l'instant, on essaie le format token simple
+		// Si ça ne marche pas, il faudra utiliser l'endpoint /access/ticket
+		token = fmt.Sprintf("PVEAPIToken=%s=%s", config.Username, config.Secret)
+		fmt.Printf("🔑 Token created: [MASKED] (format: Password/Simple Token)\n")
+	}
+
+	// Vérifier si c'est une URL de développement fictive
+	isDevURL := strings.Contains(config.URL, "example.com") ||
+		strings.Contains(config.URL, "proxmox-dev.local") ||
+		strings.Contains(config.URL, "localhost") ||
+		strings.Contains(config.URL, "127.0.0.1")
+
+	if isDevURL {
+		fmt.Println("⚠️ URL de développement détectée, retour de données fictives")
+		response := map[string]interface{}{
+			"success":  false,
+			"message":  "URL de développement détectée. Veuillez configurer une URL Proxmox réelle dans les Paramètres.",
+			"nodes":    []map[string]interface{}{},
+			"vms":      []map[string]interface{}{},
+			"lxc":      []map[string]interface{}{},
+			"storages": []map[string]interface{}{},
+			"networks": []map[string]interface{}{},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
 
 	// Récupérer les nœuds
 	fmt.Println("🔄 Fetching nodes...")
 	nodes, err := h.fetchProxmoxNodes(config.URL, token)
 	if err != nil {
 		fmt.Printf("❌ Failed to fetch nodes: %v\n", err)
-		// Si c'est une erreur 401, c'est un problème d'authentification
-		if strings.Contains(err.Error(), "401") {
-			http.Error(w, "Erreur d'authentification Proxmox: Vérifiez vos credentials (utilisateur et secret)", http.StatusUnauthorized)
-		} else {
-			http.Error(w, fmt.Sprintf("Failed to fetch nodes: %v", err), http.StatusInternalServerError)
+		// Retourner une réponse JSON avec success: false au lieu d'une erreur HTTP
+		errorResponse := map[string]interface{}{
+			"success": false,
+			"message": fmt.Sprintf("Erreur lors de la récupération des nœuds: %v", err),
+			"nodes":   []map[string]interface{}{},
+			"vms":     []map[string]interface{}{},
+			"lxc":     []map[string]interface{}{},
 		}
+
+		statusCode := http.StatusOK
+		if strings.Contains(err.Error(), "401") {
+			errorResponse["message"] = "Erreur d'authentification Proxmox: Vérifiez vos credentials (utilisateur et secret)"
+		} else if strings.Contains(err.Error(), "no such host") || strings.Contains(err.Error(), "lookup") {
+			errorResponse["message"] = "Impossible de se connecter au serveur Proxmox. Vérifiez l'URL et que le serveur est accessible."
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(statusCode)
+		json.NewEncoder(w).Encode(errorResponse)
 		return
 	}
 	fmt.Printf("✅ Nodes fetched: %d nodes\n", len(nodes))
@@ -597,21 +709,31 @@ func (h *Handlers) FetchProxmoxData(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("🔄 Fetching VMs...")
 	vms, err := h.fetchProxmoxVMs(config.URL, token)
 	if err != nil {
-		fmt.Printf("❌ Failed to fetch VMs: %v\n", err)
-		http.Error(w, fmt.Sprintf("Failed to fetch VMs: %v", err), http.StatusInternalServerError)
-		return
+		fmt.Printf("⚠️ Failed to fetch VMs: %v (continuing without VMs)\n", err)
+		vms = []map[string]interface{}{} // Continuer sans VMs
+	} else {
+		fmt.Printf("✅ VMs fetched: %d VMs\n", len(vms))
+		if len(vms) == 0 {
+			fmt.Printf("⚠️ WARNING: No VMs found. This is likely a PERMISSIONS issue.\n")
+			fmt.Printf("   The Proxmox user '%s' may not have permission to view VMs.\n", config.Username)
+			fmt.Printf("   Please check Proxmox permissions: User needs 'VM.Audit' or 'PVEAuditor' role.\n")
+		}
 	}
-	fmt.Printf("✅ VMs fetched: %d VMs\n", len(vms))
 
 	// Récupérer les conteneurs LXC
 	fmt.Println("🔄 Fetching LXC...")
 	lxc, err := h.fetchProxmoxLXC(config.URL, token)
 	if err != nil {
-		fmt.Printf("❌ Failed to fetch LXC: %v\n", err)
-		http.Error(w, fmt.Sprintf("Failed to fetch LXC: %v", err), http.StatusInternalServerError)
-		return
+		fmt.Printf("⚠️ Failed to fetch LXC: %v (continuing without LXC)\n", err)
+		lxc = []map[string]interface{}{} // Continuer sans LXC
+	} else {
+		fmt.Printf("✅ LXC fetched: %d containers\n", len(lxc))
+		if len(lxc) == 0 {
+			fmt.Printf("⚠️ WARNING: No LXC containers found. This is likely a PERMISSIONS issue.\n")
+			fmt.Printf("   The Proxmox user '%s' may not have permission to view LXC containers.\n", config.Username)
+			fmt.Printf("   Please check Proxmox permissions: User needs 'VM.Audit' or 'PVEAuditor' role.\n")
+		}
 	}
-	fmt.Printf("✅ LXC fetched: %d containers\n", len(lxc))
 
 	// Récupérer les storages
 	fmt.Println("🔄 Fetching storages...")
@@ -621,6 +743,11 @@ func (h *Handlers) FetchProxmoxData(w http.ResponseWriter, r *http.Request) {
 		storages = []map[string]interface{}{} // Continuer sans storages
 	} else {
 		fmt.Printf("✅ Storages fetched: %d storages\n", len(storages))
+		if len(storages) == 0 {
+			fmt.Printf("⚠️ WARNING: No storages found. This is likely a PERMISSIONS issue.\n")
+			fmt.Printf("   The Proxmox user '%s' may not have permission to view storages.\n", config.Username)
+			fmt.Printf("   Please check Proxmox permissions: User needs 'Datastore.Audit' or 'PVEAuditor' role.\n")
+		}
 	}
 
 	// Récupérer les interfaces réseau
@@ -633,6 +760,13 @@ func (h *Handlers) FetchProxmoxData(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("✅ Networks fetched: %d interfaces\n", len(networks))
 	}
 
+	// Vérifier si des données sont manquantes et ajouter un message d'avertissement
+	message := "Proxmox data fetched successfully"
+	if len(vms) == 0 && len(lxc) == 0 && len(storages) == 0 {
+		message = "Proxmox data fetched, but no VMs, LXC, or storages found. This is likely a PERMISSIONS issue. Please check that the Proxmox user has the necessary permissions (VM.Audit, Datastore.Audit, or PVEAuditor role)."
+		fmt.Printf("⚠️ WARNING: %s\n", message)
+	}
+
 	// Retourner les données
 	response := map[string]interface{}{
 		"success":  true,
@@ -641,7 +775,7 @@ func (h *Handlers) FetchProxmoxData(w http.ResponseWriter, r *http.Request) {
 		"lxc":      lxc,
 		"storages": storages,
 		"networks": networks,
-		"message":  "Proxmox data fetched successfully",
+		"message":  message,
 	}
 
 	fmt.Println("✅ Sending response...")
@@ -660,7 +794,9 @@ func (h *Handlers) fetchProxmoxNodes(url, token string) ([]map[string]interface{
 	}
 	client := &http.Client{Timeout: 30 * time.Second, Transport: tr}
 
-	fullURL := fmt.Sprintf("%s/api2/json/cluster/resources?type=node", url)
+	// Utiliser l'endpoint sans filtre pour récupérer TOUTES les ressources (nodes, VMs, LXC)
+	// Ensuite on filtrera dans le code
+	fullURL := fmt.Sprintf("%s/api2/json/cluster/resources", url)
 	fmt.Printf("📡 Full URL: %s\n", fullURL)
 
 	req, err := http.NewRequest("GET", fullURL, nil)
@@ -693,13 +829,26 @@ func (h *Handlers) fetchProxmoxNodes(url, token string) ([]map[string]interface{
 		return nil, err
 	}
 
+	fmt.Printf("📊 fetchProxmoxNodes: API returned %d total resources\n", len(result.Data))
+
+	// Log des types trouvés pour déboguer
+	typesFound := make(map[string]int)
+	for _, item := range result.Data {
+		if itemType, ok := item["type"].(string); ok {
+			typesFound[itemType]++
+		}
+	}
+	fmt.Printf("📊 fetchProxmoxNodes: Resource types found: %v\n", typesFound)
+
 	// Compter et collecter les VMs et LXC par nœud
 	nodeCounts := make(map[string]map[string]int)
 	nodeVMs := make(map[string][]map[string]interface{})
 	nodeLXC := make(map[string][]map[string]interface{})
 
 	for _, item := range result.Data {
-		if item["type"] == "vm" || item["type"] == "lxc" {
+		itemType, _ := item["type"].(string)
+		// Proxmox peut retourner "qemu" au lieu de "vm" pour les machines virtuelles
+		if itemType == "vm" || itemType == "qemu" || itemType == "lxc" {
 			nodeName := item["node"].(string)
 			if nodeCounts[nodeName] == nil {
 				nodeCounts[nodeName] = map[string]int{"vms": 0, "lxc": 0}
@@ -710,15 +859,15 @@ func (h *Handlers) fetchProxmoxNodes(url, token string) ([]map[string]interface{
 				"id":     item["vmid"],
 				"name":   item["name"],
 				"status": item["status"],
-				"type":   item["type"],
+				"type":   itemType,
 			}
 
-			if item["type"] == "vm" {
+			if itemType == "vm" || itemType == "qemu" {
 				nodeCounts[nodeName]["vms"]++
 				nodeVMs[nodeName] = append(nodeVMs[nodeName], vmLxcInfo)
 				fmt.Printf("🖥️ VM found on %s: %s (ID: %v, Status: %v)\n",
 					nodeName, item["name"], item["vmid"], item["status"])
-			} else if item["type"] == "lxc" {
+			} else if itemType == "lxc" {
 				nodeCounts[nodeName]["lxc"]++
 				nodeLXC[nodeName] = append(nodeLXC[nodeName], vmLxcInfo)
 				fmt.Printf("🐳 LXC found on %s: %s (ID: %v, Status: %v)\n",
@@ -792,168 +941,117 @@ func (h *Handlers) fetchProxmoxVMs(url, token string) ([]map[string]interface{},
 	}
 	client := &http.Client{Timeout: 30 * time.Second, Transport: tr}
 
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api2/json/cluster/resources?type=vm", url), nil)
+	// D'abord, récupérer la liste des nœuds
+	nodesReq, err := http.NewRequest("GET", fmt.Sprintf("%s/api2/json/nodes", url), nil)
 	if err != nil {
 		return nil, err
 	}
+	nodesReq.Header.Set("Authorization", token)
+	nodesReq.Header.Set("Content-Type", "application/json")
 
-	req.Header.Set("Authorization", token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
+	nodesResp, err := client.Do(nodesReq)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer nodesResp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("Proxmox API error: %d", resp.StatusCode)
+	if nodesResp.StatusCode != 200 {
+		return nil, fmt.Errorf("Failed to fetch nodes: %d", nodesResp.StatusCode)
 	}
 
-	var result struct {
+	var nodesResult struct {
 		Data []map[string]interface{} `json:"data"`
 	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(nodesResp.Body).Decode(&nodesResult); err != nil {
 		return nil, err
 	}
 
-	// Traiter les VMs
-	var vms []map[string]interface{}
-	for _, item := range result.Data {
-		if item["type"] == "vm" {
-			fmt.Printf("🖥️ Processing VM: %v (ID: %v)\n", item["name"], item["vmid"])
+	fmt.Printf("🔍 DEBUG VM: Found %d nodes, fetching VMs from each node\n", len(nodesResult.Data))
 
-			// Extraire les vraies données
-			maxcpu := 2.0
-			if val, ok := item["maxcpu"]; ok {
-				if f, ok := val.(float64); ok {
-					maxcpu = f
-				}
-			}
+	// Récupérer les VMs depuis chaque nœud
+	var allVMs []map[string]interface{}
+	for _, node := range nodesResult.Data {
+		nodeName, ok := node["node"].(string)
+		if !ok {
+			continue
+		}
 
-			maxmem := 0.0
-			if val, ok := item["maxmem"]; ok {
-				if f, ok := val.(float64); ok {
-					maxmem = f
-				}
-			}
+		// Utiliser l'endpoint spécifique pour les VMs sur ce nœud
+		fullURL := fmt.Sprintf("%s/api2/json/nodes/%s/qemu", url, nodeName)
+		fmt.Printf("🔍 DEBUG VM: Fetching VMs from node %s: %s\n", nodeName, fullURL)
+		req, err := http.NewRequest("GET", fullURL, nil)
+		if err != nil {
+			fmt.Printf("⚠️ Failed to create VM request for node %s: %v\n", nodeName, err)
+			continue
+		}
 
-			disk := 0.0
-			if val, ok := item["disk"]; ok {
-				if f, ok := val.(float64); ok {
-					disk = f
-				}
-			}
+		req.Header.Set("Authorization", token)
+		req.Header.Set("Content-Type", "application/json")
 
-			// Calculer l'utilisation CPU et mémoire
-			cpuUsage := 0.0
-			if val, ok := item["cpu"]; ok {
-				if f, ok := val.(float64); ok {
-					cpuUsage = f * 100
-				}
-			}
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Printf("⚠️ Failed to fetch VMs from node %s: %v (continuing)\n", nodeName, err)
+			continue
+		}
+		defer resp.Body.Close()
 
-			memoryUsage := 0.0
-			if maxmem > 0 {
-				if mem, ok := item["mem"]; ok {
-					if memFloat, ok := mem.(float64); ok {
-						memoryUsage = (memFloat / maxmem) * 100
-					}
-				}
-			}
+		if resp.StatusCode != 200 {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			fmt.Printf("⚠️ VM API error for node %s: %d - %s (continuing)\n", nodeName, resp.StatusCode, string(bodyBytes))
+			continue
+		}
 
-			uptime := int64(0)
-			if val, ok := item["uptime"]; ok {
-				if f, ok := val.(float64); ok {
-					uptime = int64(f)
-				}
-			}
+		var nodeVMsResult struct {
+			Data []map[string]interface{} `json:"data"`
+		}
 
-			// Extraire les tags
-			tags := ""
-			if val, ok := item["tags"]; ok {
-				if s, ok := val.(string); ok {
-					tags = s
-				}
-			}
+		if err := json.NewDecoder(resp.Body).Decode(&nodeVMsResult); err != nil {
+			fmt.Printf("⚠️ Failed to decode VMs from node %s: %v (continuing)\n", nodeName, err)
+			continue
+		}
 
-			// Récupérer les statistiques détaillées pour obtenir l'utilisation réelle du disque
-			diskUsage := 0.0
-			nodeName, _ := item["node"].(string)
+		fmt.Printf("✅ Found %d VMs on node %s\n", len(nodeVMsResult.Data), nodeName)
+
+		// Traiter les VMs de ce nœud
+		for _, item := range nodeVMsResult.Data {
 			vmid, _ := item["vmid"].(float64)
-			if nodeName != "" && vmid > 0 {
-				// Faire un appel API pour récupérer les statistiques détaillées
-				statusReq, err := http.NewRequest("GET", fmt.Sprintf("%s/api2/json/nodes/%s/qemu/%d/status/current", url, nodeName, int(vmid)), nil)
-				if err == nil {
-					statusReq.Header.Set("Authorization", token)
-					statusReq.Header.Set("Content-Type", "application/json")
-
-					statusResp, err := client.Do(statusReq)
-					if err == nil && statusResp.StatusCode == 200 {
-						var statusResult struct {
-							Data map[string]interface{} `json:"data"`
-						}
-						if err := json.NewDecoder(statusResp.Body).Decode(&statusResult); err == nil {
-							statusResp.Body.Close()
-
-							// Calculer l'utilisation du disque à partir des statistiques
-							// L'API peut retourner "maxdisk" (espace total) et "disk" (espace utilisé)
-							// ou utiliser les informations de storage
-							if maxdisk, ok := statusResult.Data["maxdisk"].(float64); ok && maxdisk > 0 {
-								if useddisk, ok := statusResult.Data["disk"].(float64); ok {
-									diskUsage = (useddisk / maxdisk) * 100
-									fmt.Printf("💾 VM %v: disk usage = %.2f%% (used: %.2fGB, total: %.2fGB)\n",
-										item["name"], diskUsage, useddisk/1024/1024/1024, maxdisk/1024/1024/1024)
-								}
-							} else {
-								// Si maxdisk n'est pas disponible, utiliser la taille totale du disque depuis les ressources
-								// et estimer l'utilisation (approximation basée sur l'utilisation mémoire)
-								if disk > 0 {
-									// Estimation basée sur l'utilisation mémoire (corrélation approximative)
-									diskUsage = memoryUsage * 0.8 // Approximation: 80% de l'utilisation mémoire
-									if diskUsage > 100 {
-										diskUsage = 100
-									}
-									fmt.Printf("💾 VM %v: estimated disk usage = %.2f%% (based on memory usage)\n",
-										item["name"], diskUsage)
-								}
-							}
-						} else {
-							if statusResp != nil {
-								statusResp.Body.Close()
-							}
-						}
-					} else {
-						if statusResp != nil {
-							statusResp.Body.Close()
-						}
-					}
-				}
-			}
+			name, _ := item["name"].(string)
+			status, _ := item["status"].(string)
 
 			vm := map[string]interface{}{
-				"id":           item["vmid"],
-				"vmid":         item["vmid"],
-				"name":         item["name"],
-				"status":       item["status"],
-				"node":         item["node"],
-				"maxcpu":       maxcpu,
-				"maxmem":       maxmem,
-				"disk":         disk,
-				"cpu_usage":    cpuUsage,
-				"memory_usage": memoryUsage,
-				"disk_usage":   diskUsage,
-				"uptime":       uptime,
-				"tags":         tags,
-				"ostype":       item["ostype"],
+				"id":           int(vmid),
+				"vmid":         int(vmid),
+				"name":         name,
+				"status":       status,
+				"node":         nodeName,
+				"cpu_usage":    0.0,
+				"memory_usage": 0.0,
+				"disk_usage":   0.0,
+				"uptime":       0,
 				"last_update":  time.Now().Format(time.RFC3339),
 			}
-			vms = append(vms, vm)
+
+			// Récupérer les statistiques détaillées si disponibles
+			if maxcpu, ok := item["maxcpu"].(float64); ok {
+				vm["maxcpu"] = maxcpu
+			}
+			if maxmem, ok := item["maxmem"].(float64); ok {
+				vm["maxmem"] = maxmem
+			}
+			if disk, ok := item["disk"].(float64); ok {
+				vm["disk"] = disk
+			}
+			if uptime, ok := item["uptime"].(float64); ok {
+				vm["uptime"] = int64(uptime)
+			}
+
+			allVMs = append(allVMs, vm)
+			fmt.Printf("🖥️ VM found: %s (ID: %d, Node: %s, Status: %s)\n", name, int(vmid), nodeName, status)
 		}
 	}
 
-	return vms, nil
+	fmt.Printf("✅ Total VMs found across all nodes: %d\n", len(allVMs))
+	return allVMs, nil
 }
 
 // fetchProxmoxLXC récupère les conteneurs LXC depuis Proxmox
@@ -966,59 +1064,113 @@ func (h *Handlers) fetchProxmoxLXC(url, token string) ([]map[string]interface{},
 	}
 	client := &http.Client{Timeout: 30 * time.Second, Transport: tr}
 
-	// Utiliser le même endpoint que pour les VMs mais filtrer par type
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api2/json/cluster/resources", url), nil)
+	// D'abord, récupérer la liste des nœuds
+	nodesReq, err := http.NewRequest("GET", fmt.Sprintf("%s/api2/json/nodes", url), nil)
 	if err != nil {
-		fmt.Printf("❌ Failed to create LXC request: %v\n", err)
 		return nil, err
 	}
+	nodesReq.Header.Set("Authorization", token)
+	nodesReq.Header.Set("Content-Type", "application/json")
 
-	req.Header.Set("Authorization", token)
-	req.Header.Set("Content-Type", "application/json")
-
-	fmt.Println("🚀 Sending LXC request...")
-	resp, err := client.Do(req)
+	nodesResp, err := client.Do(nodesReq)
 	if err != nil {
-		fmt.Printf("❌ LXC request failed: %v\n", err)
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer nodesResp.Body.Close()
 
-	fmt.Printf("📊 LXC Response status: %d\n", resp.StatusCode)
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("Proxmox API error: %d", resp.StatusCode)
+	if nodesResp.StatusCode != 200 {
+		return nil, fmt.Errorf("Failed to fetch nodes: %d", nodesResp.StatusCode)
 	}
 
-	var result struct {
+	var nodesResult struct {
 		Data []map[string]interface{} `json:"data"`
 	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(nodesResp.Body).Decode(&nodesResult); err != nil {
 		return nil, err
 	}
 
-	// Traiter les conteneurs LXC
-	var lxc []map[string]interface{}
-	for _, item := range result.Data {
-		if item["type"] == "lxc" {
-			fmt.Printf("🐳 Processing LXC container: %v (ID: %v)\n", item["name"], item["vmid"])
+	fmt.Printf("🔍 DEBUG LXC: Found %d nodes, fetching LXC from each node\n", len(nodesResult.Data))
+
+	// Récupérer les LXC depuis chaque nœud
+	var allLXC []map[string]interface{}
+	for _, node := range nodesResult.Data {
+		nodeName, ok := node["node"].(string)
+		if !ok {
+			continue
+		}
+
+		// Utiliser l'endpoint spécifique pour les LXC sur ce nœud
+		fullURL := fmt.Sprintf("%s/api2/json/nodes/%s/lxc", url, nodeName)
+		fmt.Printf("🔍 DEBUG LXC: Fetching LXC from node %s: %s\n", nodeName, fullURL)
+		req, err := http.NewRequest("GET", fullURL, nil)
+		if err != nil {
+			fmt.Printf("⚠️ Failed to create LXC request for node %s: %v\n", nodeName, err)
+			continue
+		}
+
+		req.Header.Set("Authorization", token)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Printf("⚠️ Failed to fetch LXC from node %s: %v (continuing)\n", nodeName, err)
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			fmt.Printf("⚠️ LXC API error for node %s: %d - %s (continuing)\n", nodeName, resp.StatusCode, string(bodyBytes))
+			continue
+		}
+
+		var nodeLXCResult struct {
+			Data []map[string]interface{} `json:"data"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&nodeLXCResult); err != nil {
+			fmt.Printf("⚠️ Failed to decode LXC from node %s: %v (continuing)\n", nodeName, err)
+			continue
+		}
+
+		fmt.Printf("✅ Found %d LXC containers on node %s\n", len(nodeLXCResult.Data), nodeName)
+
+		// Traiter les LXC de ce nœud
+		for _, item := range nodeLXCResult.Data {
+			vmid, _ := item["vmid"].(float64)
+			name, _ := item["name"].(string)
+			status, _ := item["status"].(string)
+
 			container := map[string]interface{}{
-				"id":           item["vmid"],
-				"name":         item["name"],
-				"status":       item["status"],
-				"node":         item["node"],
-				"cpu_usage":    rand.Intn(20) + 2,     // TODO: Récupérer les vraies métriques
-				"memory_usage": rand.Intn(30) + 5,     // TODO: Récupérer les vraies métriques
-				"uptime":       86400 * rand.Intn(30), // TODO: Récupérer le vrai uptime
+				"id":           int(vmid),
+				"vmid":         int(vmid),
+				"name":         name,
+				"status":       status,
+				"node":         nodeName,
+				"cpu_usage":    0,
+				"memory_usage": 0,
+				"uptime":       0,
 				"last_update":  time.Now().Format(time.RFC3339),
 			}
-			lxc = append(lxc, container)
+
+			// Récupérer les statistiques détaillées si disponibles
+			if maxcpu, ok := item["maxcpu"].(float64); ok {
+				container["maxcpu"] = maxcpu
+			}
+			if maxmem, ok := item["maxmem"].(float64); ok {
+				container["maxmem"] = maxmem
+			}
+			if uptime, ok := item["uptime"].(float64); ok {
+				container["uptime"] = int64(uptime)
+			}
+
+			allLXC = append(allLXC, container)
+			fmt.Printf("🐳 LXC found: %s (ID: %d, Node: %s, Status: %s)\n", name, int(vmid), nodeName, status)
 		}
 	}
 
-	fmt.Printf("✅ LXC containers processed: %d\n", len(lxc))
-
-	return lxc, nil
+	fmt.Printf("✅ Total LXC containers found across all nodes: %d\n", len(allLXC))
+	return allLXC, nil
 }
 
 // fetchNodeMetrics récupère les vraies métriques d'un nœud Proxmox
@@ -1448,8 +1600,10 @@ func (h *Handlers) fetchProxmoxStorages(url, token string) ([]map[string]interfa
 		}
 		defer resp.Body.Close()
 
+		fmt.Printf("📊 Storage API response for node %s: status %d\n", nodeName, resp.StatusCode)
 		if resp.StatusCode != 200 {
-			fmt.Printf("⚠️ Storage API error for node %s: %d\n", nodeName, resp.StatusCode)
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			fmt.Printf("⚠️ Storage API error for node %s: %d - %s\n", nodeName, resp.StatusCode, string(bodyBytes))
 			continue
 		}
 
@@ -1461,6 +1615,8 @@ func (h *Handlers) fetchProxmoxStorages(url, token string) ([]map[string]interfa
 			fmt.Printf("⚠️ Failed to decode storage response for node %s: %v\n", nodeName, err)
 			continue
 		}
+
+		fmt.Printf("📊 Node %s has %d storages\n", nodeName, len(storageResult.Data))
 
 		// Traiter chaque storage
 		for _, storage := range storageResult.Data {
@@ -1523,6 +1679,14 @@ func (h *Handlers) fetchProxmoxStorages(url, token string) ([]map[string]interfa
 	}
 
 	fmt.Printf("✅ Storages processed: %d unique storages\n", len(allStorages))
+
+	if len(allStorages) == 0 {
+		fmt.Printf("⚠️ WARNING: No storages found. This could mean:\n")
+		fmt.Printf("   1. Your Proxmox nodes have no configured storages\n")
+		fmt.Printf("   2. The storage API endpoint is not accessible\n")
+		fmt.Printf("   3. There's a permission issue with the Proxmox user\n")
+	}
+
 	return allStorages, nil
 }
 

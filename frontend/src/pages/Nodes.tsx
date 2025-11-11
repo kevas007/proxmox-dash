@@ -22,6 +22,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useToast } from '@/components/ui/Toast';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { Loader } from '@/components/ui/Loader';
+import { apiPost } from '@/utils/api';
 
 interface Node {
   id: string;
@@ -288,24 +289,20 @@ export function Nodes() {
       console.log('📊 Configuration Proxmox:', config);
 
       // Appeler l'API backend pour récupérer les données Proxmox
-      const response = await fetch('/api/v1/proxmox/fetch-data', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          url: config.url,
-          username: config.username,
-          secret: config.secret,
-          node: config.node
-        })
+      // Utiliser apiPost pour utiliser la bonne URL de l'API (API_BASE_URL)
+      const data = await apiPost<{
+        success: boolean;
+        message?: string;
+        nodes?: any[];
+        vms?: any[];
+        lxc?: any[];
+        storages?: any[];
+      }>('/api/v1/proxmox/fetch-data', {
+        url: config.url,
+        username: config.username,
+        secret: config.secret,
+        node: config.node
       });
-
-      if (!response.ok) {
-        throw new Error(`Erreur backend: ${response.status}`);
-      }
-
-      const data = await response.json();
       console.log('📊 Données Proxmox récupérées:', data);
 
       if (data.success) {
@@ -327,10 +324,10 @@ export function Nodes() {
         window.dispatchEvent(new CustomEvent('proxmoxDataUpdated', {
           detail: { nodes: data.nodes, vms: data.vms, lxc: data.lxc }
         }));
-
         console.log('✅ Rafraîchissement terminé avec succès');
       } else {
-        throw new Error(data.message || 'Erreur lors de la récupération des données');
+        const errorMsg = data.message || 'Erreur lors du rafraîchissement des nœuds';
+        error(t('common.error'), errorMsg);
       }
 
     } catch (err) {

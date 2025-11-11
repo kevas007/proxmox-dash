@@ -26,6 +26,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useTranslation } from '@/hooks/useTranslation';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { Loader } from '@/components/ui/Loader';
+import { apiPost } from '@/utils/api';
 
 interface NetworkInterface {
   id: string;
@@ -112,9 +113,22 @@ export function NetworkPage() {
         return;
       }
 
-      // Si pas de données Proxmox, charger les données mockées
-      console.log('⚠️ Aucune donnée Network Proxmox trouvée - chargement des données mockées');
-    const mockInterfaces: NetworkInterface[] = [
+      // Si pas de données Proxmox, vérifier si on est en production
+      const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+      const proxmoxConfig = localStorage.getItem('proxmoxConfig');
+      
+      // En production, si Proxmox n'est pas configuré, ne pas charger de données mockées
+      if (isProduction && !proxmoxConfig) {
+        console.log('⚠️ Production: Proxmox non configuré, pas de données mockées');
+        setInterfaces([]);
+        setLoading(false);
+        return;
+      }
+      
+      // En développement uniquement, charger les données mockées
+      if (!isProduction) {
+        console.log('⚠️ Développement: Aucune donnée Network Proxmox trouvée - chargement des données mockées');
+        const mockInterfaces: NetworkInterface[] = [
       {
         id: 'vmbr0',
         name: 'vmbr0',
@@ -197,8 +211,13 @@ export function NetworkPage() {
       }
     ];
 
-      setInterfaces(mockInterfaces);
-      setLoading(false);
+        setInterfaces(mockInterfaces);
+        setLoading(false);
+      } else {
+        // Production sans données : liste vide
+        setInterfaces([]);
+        setLoading(false);
+      }
     } catch (err) {
       console.error('❌ Erreur lors du chargement des données Network:', err);
       setLoading(false);
@@ -234,24 +253,21 @@ export function NetworkPage() {
 
       const config = JSON.parse(savedConfig);
 
-      const response = await fetch('/api/v1/proxmox/fetch-data', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          url: config.url,
-          username: config.username,
-          secret: config.secret,
-          node: config.node
-        })
+      // Utiliser apiPost pour utiliser la bonne URL de l'API (API_BASE_URL)
+      const data = await apiPost<{
+        success: boolean;
+        message?: string;
+        nodes?: any[];
+        vms?: any[];
+        lxc?: any[];
+        storages?: any[];
+        networks?: any[];
+      }>('/api/v1/proxmox/fetch-data', {
+        url: config.url,
+        username: config.username,
+        secret: config.secret,
+        node: config.node
       });
-
-      if (!response.ok) {
-        throw new Error(`Erreur backend: ${response.status}`);
-      }
-
-      const data = await response.json();
 
       if (data.success) {
         localStorage.setItem('proxmoxNodes', JSON.stringify(data.nodes || []));
@@ -270,7 +286,8 @@ export function NetworkPage() {
 
         success(t('common.success'), t('network.refresh_success') || 'Interfaces réseau rafraîchies avec succès');
       } else {
-        error(t('common.error'), t('network.refresh_error') || 'Erreur lors du rafraîchissement des interfaces réseau');
+        const errorMsg = data.message || t('network.refresh_error') || 'Erreur lors du rafraîchissement des interfaces réseau';
+        error(t('common.error'), errorMsg);
       }
     } catch (err) {
       console.error('❌ Erreur lors du rafraîchissement des interfaces réseau:', err);
@@ -612,15 +629,15 @@ export function NetworkPage() {
                       <Edit className="h-4 w-4" />
                     </Button>
                     <div className="relative">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="p-1"
-                        onClick={() => handleInterfaceMore(iface)}
-                        title="Plus d'actions"
-                      >
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="p-1"
+                      onClick={() => handleInterfaceMore(iface)}
+                      title="Plus d'actions"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
                       {showMoreMenu === iface.id && (
                         <>
                           <div 

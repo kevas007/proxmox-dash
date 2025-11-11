@@ -153,13 +153,13 @@ export function UsersPage() {
       message: `Êtes-vous sûr de vouloir supprimer l'utilisateur "${user.username}" ?`,
       variant: 'danger',
       onConfirm: async () => {
-        try {
-          await apiDelete(`/api/auth/users/${user.id}`);
-          success('Succès', 'Utilisateur supprimé avec succès');
-          loadUsers();
-        } catch (err: any) {
-          error('Erreur', err.message || 'Impossible de supprimer l\'utilisateur');
-        }
+    try {
+      await apiDelete(`/api/auth/users/${user.id}`);
+      success('Succès', 'Utilisateur supprimé avec succès');
+      loadUsers();
+    } catch (err: any) {
+      error('Erreur', err.message || 'Impossible de supprimer l\'utilisateur');
+    }
       }
     });
   };

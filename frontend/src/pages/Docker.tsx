@@ -24,7 +24,6 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
-import { useTranslation } from '@/hooks/useTranslation';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { Loader } from '@/components/ui/Loader';
 import { exportToCSV } from '@/utils/export';
@@ -56,7 +55,6 @@ interface DockerImage {
 }
 
 export function Docker() {
-  const { t } = useTranslation();
   const [containers, setContainers] = useState<DockerContainer[]>([]);
   const [images, setImages] = useState<DockerImage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -83,8 +81,20 @@ export function Docker() {
   // Charger les données Docker depuis localStorage
   const loadDockerData = () => {
     try {
-      // Pour l'instant, Docker n'est pas intégré avec Proxmox
-      // Charger les données mockées
+      // Vérifier si on est en production
+      const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+      
+      // En production, ne pas charger de données mockées
+      if (isProduction) {
+        console.log('⚠️ Production: Docker n\'est pas encore intégré avec Proxmox');
+        setContainers([]);
+        setImages([]);
+        setLoading(false);
+        return;
+      }
+      
+      // En développement uniquement, charger les données mockées
+      console.log('⚠️ Développement: Chargement des données Docker mockées');
       const mockContainers: DockerContainer[] = [
       {
         id: 'abc123def456',
@@ -187,9 +197,9 @@ export function Docker() {
       }
     ];
 
-      setContainers(mockContainers);
-      setImages(mockImages);
-      setLoading(false);
+        setContainers(mockContainers);
+        setImages(mockImages);
+        setLoading(false);
     } catch (err) {
       console.error('❌ Erreur lors du chargement des données Docker:', err);
       setLoading(false);

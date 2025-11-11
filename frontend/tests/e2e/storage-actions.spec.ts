@@ -41,6 +41,16 @@ test.describe('Storage - actions de base', () => {
         }
       ];
       localStorage.setItem('proxmoxStorages', JSON.stringify(mockStorages));
+      // Configurer Proxmox pour que les actions fonctionnent
+      const mockProxmoxConfig = {
+        url: 'https://proxmox-dev.local:8006',
+        username: 'root',
+        secret: 'test-secret',
+        token_id: 'test-token',
+        token_secret: 'test-token-secret',
+        node: 'pve-01'
+      };
+      localStorage.setItem('proxmoxConfig', JSON.stringify(mockProxmoxConfig));
     });
     await page.goto('/');
     // Attendre que la page se charge
@@ -72,14 +82,42 @@ test.describe('Storage - actions de base', () => {
 
   test('peut actualiser un pool de stockage', async ({ page }) => {
     await expect(page.getByRole('heading', { name: /Stockage|Storage/i })).toBeVisible({ timeout: 10000 });
-    // Chercher un bouton "Actualiser" dans une carte
-    const refreshBtn = page.getByRole('button', { name: /actualiser|refresh/i }).first();
-    if (await refreshBtn.isVisible().catch(() => false)) {
-      await refreshBtn.click();
-      // Attendre un toast de succès (chercher le message complet)
-      await expect(
-        page.getByText(/stockage.*actualisé|storage.*refreshed/i)
-      ).toBeVisible({ timeout: 5000 });
+    // Attendre que les cartes de stockage soient visibles
+    await page.waitForTimeout(2000);
+    
+    // Chercher le bouton "More Actions" (3 points) dans une carte
+    const moreBtn = page.locator('button').filter({ hasText: /\.\.\.|more|plus/i }).first();
+    if (await moreBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await moreBtn.click();
+      await page.waitForTimeout(500);
+      
+      // Chercher le bouton "Actualiser" dans le menu déroulant
+      const refreshMenuBtn = page.getByRole('button', { name: /actualiser|refresh/i }).first();
+      if (await refreshMenuBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await refreshMenuBtn.click();
+        // Attendre le toast - chercher le texte dans toute la page
+        await expect(
+          page.getByText(/stockage.*actualisé|storage.*refreshed/i)
+        ).toBeVisible({ timeout: 5000 });
+      } else {
+        // Si le bouton n'est pas trouvé, chercher directement un bouton "Actualiser" visible
+        const directRefreshBtn = page.getByRole('button', { name: /actualiser|refresh/i }).first();
+        if (await directRefreshBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await directRefreshBtn.click();
+          await expect(
+            page.getByText(/stockage.*actualisé|storage.*refreshed/i)
+          ).toBeVisible({ timeout: 5000 });
+        }
+      }
+    } else {
+      // Si le menu "More Actions" n'est pas visible, chercher directement un bouton "Actualiser"
+      const refreshBtn = page.getByRole('button', { name: /actualiser|refresh/i }).first();
+      if (await refreshBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await refreshBtn.click();
+        await expect(
+          page.getByText(/stockage.*actualisé|storage.*refreshed/i)
+        ).toBeVisible({ timeout: 5000 });
+      }
     }
   });
 
