@@ -27,6 +27,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { Loader } from '@/components/ui/Loader';
 import { apiPost } from '@/utils/api';
+import { storage } from '@/utils/storage';
 
 interface NetworkInterface {
   id: string;
@@ -73,19 +74,33 @@ export function NetworkPage() {
     onConfirm: () => {}
   });
 
-  // Charger les données Network depuis localStorage
-  const loadNetworkData = () => {
+  // Charger les données Network depuis Proxmox
+  const loadNetworkData = async () => {
     try {
       setLoading(true);
       
-      // Essayer de charger les données Proxmox réelles
-      const savedNetworks = localStorage.getItem('proxmoxNetworks');
-      if (savedNetworks) {
-        const proxmoxNetworks = JSON.parse(savedNetworks);
-        console.log('🌐 Interfaces réseau chargées depuis localStorage:', proxmoxNetworks);
+      const config = storage.getProxmoxConfig();
+      if (!config) {
+        console.log('⚠️ Aucune configuration Proxmox trouvée');
+        setInterfaces([]);
+        setLoading(false);
+        return;
+      }
 
+      // Charger depuis l'API Proxmox
+      const data = await apiPost<{
+        success: boolean;
+        message?: string;
+        networks?: any[];
+      }>('/api/v1/proxmox/fetch-networks', {
+        url: config.url,
+        username: config.username,
+        secret: config.secret
+      });
+
+      if (data.success && data.networks && data.networks.length > 0) {
         // Convertir les données Proxmox vers le format NetworkInterface
-        const convertedInterfaces: NetworkInterface[] = proxmoxNetworks.map((network: any) => ({
+        const convertedInterfaces: NetworkInterface[] = data.networks.map((network: any) => ({
           id: network.id || network.name || 'unknown',
           name: network.name || network.id || 'unknown',
           type: (network.type === 'bridge' ? 'bridge' : network.type === 'bond' ? 'bond' : network.type === 'vlan' ? 'vlan' : 'physical') as NetworkInterface['type'],
@@ -108,191 +123,101 @@ export function NetworkPage() {
         }));
 
         setInterfaces(convertedInterfaces);
-        console.log('✅ Interfaces réseau converties:', convertedInterfaces);
-        setLoading(false);
-        return;
-      }
-
-      // Si pas de données Proxmox, vérifier si on est en production
-      const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
-      const proxmoxConfig = localStorage.getItem('proxmoxConfig');
-      
-      // En production, si Proxmox n'est pas configuré, ne pas charger de données mockées
-      if (isProduction && !proxmoxConfig) {
-        console.log('⚠️ Production: Proxmox non configuré, pas de données mockées');
-        setInterfaces([]);
-        setLoading(false);
-        return;
-      }
-      
-      // En développement uniquement, charger les données mockées
-      if (!isProduction) {
-        console.log('⚠️ Développement: Aucune donnée Network Proxmox trouvée - chargement des données mockées');
-        const mockInterfaces: NetworkInterface[] = [
-      {
-        id: 'vmbr0',
-        name: 'vmbr0',
-        type: 'bridge',
-        status: 'up',
-        node: 'pve-01',
-        ip_address: '192.168.1.10',
-        netmask: '255.255.255.0',
-        gateway: '192.168.1.1',
-        mtu: 1500,
-        speed: 1000,
-        rx_bytes: 1024000000,
-        tx_bytes: 512000000,
-        rx_packets: 1500000,
-        tx_packets: 750000,
-        rx_errors: 0,
-        tx_errors: 0,
-        created_at: '2023-12-01T00:00:00Z',
-        vms_count: 8,
-        lxc_count: 12
-      },
-      {
-        id: 'vmbr1',
-        name: 'vmbr1',
-        type: 'bridge',
-        status: 'up',
-        node: 'pve-01',
-        ip_address: '10.0.0.10',
-        netmask: '255.255.0.0',
-        mtu: 1500,
-        speed: 1000,
-        rx_bytes: 512000000,
-        tx_bytes: 256000000,
-        rx_packets: 750000,
-        tx_packets: 375000,
-        rx_errors: 0,
-        tx_errors: 0,
-        created_at: '2023-12-15T00:00:00Z',
-        vms_count: 5,
-        lxc_count: 8
-      },
-      {
-        id: 'bond0',
-        name: 'bond0',
-        type: 'bond',
-        status: 'up',
-        node: 'pve-02',
-        ip_address: '192.168.2.10',
-        netmask: '255.255.255.0',
-        gateway: '192.168.2.1',
-        mtu: 1500,
-        speed: 2000,
-        rx_bytes: 2048000000,
-        tx_bytes: 1024000000,
-        rx_packets: 3000000,
-        tx_packets: 1500000,
-        rx_errors: 0,
-        tx_errors: 0,
-        created_at: '2023-11-20T00:00:00Z',
-        vms_count: 12,
-        lxc_count: 15
-      },
-      {
-        id: 'vlan100',
-        name: 'vlan100',
-        type: 'vlan',
-        status: 'down',
-        node: 'pve-03',
-        mtu: 1500,
-        speed: 1000,
-        rx_bytes: 0,
-        tx_bytes: 0,
-        rx_packets: 0,
-        tx_packets: 0,
-        rx_errors: 0,
-        tx_errors: 0,
-        created_at: '2024-01-10T00:00:00Z',
-        vms_count: 0,
-        lxc_count: 0
-      }
-    ];
-
-        setInterfaces(mockInterfaces);
-        setLoading(false);
+        // Sauvegarder dans localStorage pour le cache
+        localStorage.setItem('proxmoxNetworks', JSON.stringify(data.networks));
+        console.log('✅ Interfaces réseau chargées depuis Proxmox:', convertedInterfaces.length);
       } else {
-        // Production sans données : liste vide
-        setInterfaces([]);
-        setLoading(false);
+        // Essayer de charger depuis localStorage en fallback
+        const savedNetworks = localStorage.getItem('proxmoxNetworks');
+        if (savedNetworks) {
+          const proxmoxNetworks = JSON.parse(savedNetworks);
+          const convertedInterfaces: NetworkInterface[] = proxmoxNetworks.map((network: any) => ({
+            id: network.id || network.name || 'unknown',
+            name: network.name || network.id || 'unknown',
+            type: (network.type === 'bridge' ? 'bridge' : network.type === 'bond' ? 'bond' : network.type === 'vlan' ? 'vlan' : 'physical') as NetworkInterface['type'],
+            status: (network.status === 'active' || network.active ? 'up' : 'down') as NetworkInterface['status'],
+            node: network.node || 'unknown',
+            ip_address: network.ip_address || network.address,
+            netmask: network.netmask,
+            gateway: network.gateway,
+            mtu: 1500,
+            speed: 1000,
+            rx_bytes: 0,
+            tx_bytes: 0,
+            rx_packets: 0,
+            tx_packets: 0,
+            rx_errors: 0,
+            tx_errors: 0,
+            created_at: network.last_update || new Date().toISOString(),
+            vms_count: 0,
+            lxc_count: 0
+          }));
+          setInterfaces(convertedInterfaces);
+          console.log('✅ Interfaces réseau chargées depuis localStorage:', convertedInterfaces.length);
+        } else {
+          console.log('ℹ️ Aucune interface réseau trouvée');
+          setInterfaces([]);
+        }
       }
     } catch (err) {
       console.error('❌ Erreur lors du chargement des données Network:', err);
+      // Essayer de charger depuis localStorage en fallback
+      const savedNetworks = localStorage.getItem('proxmoxNetworks');
+      if (savedNetworks) {
+        const proxmoxNetworks = JSON.parse(savedNetworks);
+        const convertedInterfaces: NetworkInterface[] = proxmoxNetworks.map((network: any) => ({
+          id: network.id || network.name || 'unknown',
+          name: network.name || network.id || 'unknown',
+          type: (network.type === 'bridge' ? 'bridge' : network.type === 'bond' ? 'bond' : network.type === 'vlan' ? 'vlan' : 'physical') as NetworkInterface['type'],
+          status: (network.status === 'active' || network.active ? 'up' : 'down') as NetworkInterface['status'],
+          node: network.node || 'unknown',
+          ip_address: network.ip_address || network.address,
+          netmask: network.netmask,
+          gateway: network.gateway,
+          mtu: 1500,
+          speed: 1000,
+          rx_bytes: 0,
+          tx_bytes: 0,
+          rx_packets: 0,
+          tx_packets: 0,
+          rx_errors: 0,
+          tx_errors: 0,
+          created_at: network.last_update || new Date().toISOString(),
+          vms_count: 0,
+          lxc_count: 0
+        }));
+        setInterfaces(convertedInterfaces);
+      } else {
+        setInterfaces([]);
+      }
+    } finally {
       setLoading(false);
     }
   };
 
+  // Chargement automatique au montage et rafraîchissement toutes les 10 secondes
   useEffect(() => {
-    loadNetworkData();
-  }, []);
-
-  // Écouter les mises à jour des données Proxmox
-  useEffect(() => {
-    const handleProxmoxDataUpdated = () => {
-      console.log('🔄 Mise à jour des données Proxmox détectée pour Network');
-    loadNetworkData();
+    // Charger automatiquement les données Proxmox si la configuration existe
+    const loadDataOnMount = async () => {
+      await storage.ensureProxmoxDataLoaded();
+      await loadNetworkData();
     };
+    
+    loadDataOnMount();
 
-    window.addEventListener('proxmoxDataUpdated', handleProxmoxDataUpdated);
-    return () => window.removeEventListener('proxmoxDataUpdated', handleProxmoxDataUpdated);
+    // Rafraîchissement automatique toutes les 10 secondes
+    const interval = setInterval(async () => {
+      await storage.ensureProxmoxDataLoaded();
+      await loadNetworkData();
+    }, 10000); // 10 secondes
+
+    return () => clearInterval(interval);
   }, []);
 
-  // Fonction pour rafraîchir les interfaces réseau en récupérant les données Proxmox
+  // Fonction de rafraîchissement manuel (pour le bouton)
   const refreshNetworks = async () => {
-    try {
-      console.log('🔄 Rafraîchissement des données Network Proxmox...');
-
-      const savedConfig = localStorage.getItem('proxmoxConfig');
-      if (!savedConfig) {
-        console.log('⚠️ Aucune configuration Proxmox trouvée');
-        error(t('common.error'), t('network.no_proxmox_config') || 'Aucune configuration Proxmox trouvée. Veuillez d\'abord configurer votre connexion Proxmox dans les Paramètres.');
-        return;
-      }
-
-      const config = JSON.parse(savedConfig);
-
-      // Utiliser apiPost pour utiliser la bonne URL de l'API (API_BASE_URL)
-      const data = await apiPost<{
-        success: boolean;
-        message?: string;
-        nodes?: any[];
-        vms?: any[];
-        lxc?: any[];
-        storages?: any[];
-        networks?: any[];
-      }>('/api/v1/proxmox/fetch-data', {
-        url: config.url,
-        username: config.username,
-        secret: config.secret,
-        node: config.node
-      });
-
-      if (data.success) {
-        localStorage.setItem('proxmoxNodes', JSON.stringify(data.nodes || []));
-        localStorage.setItem('proxmoxVMs', JSON.stringify(data.vms || []));
-        localStorage.setItem('proxmoxLXC', JSON.stringify(data.lxc || []));
-        if (data.storages) {
-          localStorage.setItem('proxmoxStorages', JSON.stringify(data.storages));
-        }
-        if (data.networks) {
-          localStorage.setItem('proxmoxNetworks', JSON.stringify(data.networks));
-        }
-
-        window.dispatchEvent(new CustomEvent('proxmoxDataUpdated', {
-          detail: { nodes: data.nodes, vms: data.vms, lxc: data.lxc, storages: data.storages, networks: data.networks }
-        }));
-
-        success(t('common.success'), t('network.refresh_success') || 'Interfaces réseau rafraîchies avec succès');
-      } else {
-        const errorMsg = data.message || t('network.refresh_error') || 'Erreur lors du rafraîchissement des interfaces réseau';
-        error(t('common.error'), errorMsg);
-      }
-    } catch (err) {
-      console.error('❌ Erreur lors du rafraîchissement des interfaces réseau:', err);
-      error(t('common.error'), t('network.refresh_error') || 'Erreur lors du rafraîchissement des interfaces réseau');
-    }
+    await storage.ensureProxmoxDataLoaded();
+    await loadNetworkData();
   };
 
   const getTypeIcon = (type: string) => {

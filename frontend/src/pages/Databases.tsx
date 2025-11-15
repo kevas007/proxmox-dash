@@ -16,7 +16,10 @@ import {
   Square,
   RotateCcw,
   Settings,
-  Download
+  Download,
+  ExternalLink,
+  Monitor,
+  Container
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -26,6 +29,8 @@ import { Select } from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { Loader } from '@/components/ui/Loader';
+import { apiPost } from '@/utils/api';
+import { storage } from '@/utils/storage';
 
 interface DatabaseInstance {
   id: string;
@@ -46,6 +51,10 @@ interface DatabaseInstance {
   created_at: string;
   ssl_enabled: boolean;
   authentication: string;
+  // Informations pour ouvrir la VM/LXC
+  resource_type?: 'vm' | 'qemu' | 'lxc';
+  resource_id?: number;
+  node?: string;
 }
 
 export function Databases() {
@@ -70,138 +79,96 @@ export function Databases() {
     onConfirm: () => {}
   });
 
-  // Charger les données Databases depuis localStorage
-  const loadDatabasesData = () => {
+  // Charger les données Databases depuis Proxmox
+  const loadDatabasesData = async () => {
     try {
-      // Vérifier si on est en production
-      const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+      setLoading(true);
       
-      // En production, ne pas charger de données mockées
-      if (isProduction) {
-        console.log('⚠️ Production: Databases n\'est pas encore intégré avec Proxmox');
+      // Essayer de charger les données Proxmox réelles
+      const savedConfig = localStorage.getItem('proxmoxConfig');
+      if (!savedConfig) {
+        console.log('⚠️ Aucune configuration Proxmox trouvée');
         setDatabases([]);
         setLoading(false);
         return;
       }
-      
-      // En développement uniquement, charger les données mockées
-      console.log('⚠️ Développement: Chargement des données Databases mockées');
-      const mockDatabases: DatabaseInstance[] = [
-      {
-        id: 'mysql-01',
-        name: 'MySQL Production',
-        type: 'mysql',
-        status: 'running',
-        host: 'db-01.example.com',
-        port: 3306,
-        version: '8.0.35',
-        cpu_usage: 25,
-        memory_usage: 68,
-        disk_usage: 45,
-        connections: 45,
-        max_connections: 100,
-        uptime: 86400 * 30, // 30 jours
-        last_backup: '2024-01-15T02:00:00Z',
-        size: 125.5,
-        created_at: '2023-12-01T00:00:00Z',
-        ssl_enabled: true,
-        authentication: 'mysql_native_password'
-      },
-      {
-        id: 'postgres-01',
-        name: 'PostgreSQL Analytics',
-        type: 'postgresql',
-        status: 'running',
-        host: 'db-02.example.com',
-        port: 5432,
-        version: '15.4',
-        cpu_usage: 35,
-        memory_usage: 78,
-        disk_usage: 62,
-        connections: 23,
-        max_connections: 200,
-        uptime: 86400 * 25, // 25 jours
-        last_backup: '2024-01-15T03:00:00Z',
-        size: 89.2,
-        created_at: '2023-12-15T00:00:00Z',
-        ssl_enabled: true,
-        authentication: 'scram-sha-256'
-      },
-      {
-        id: 'mongodb-01',
-        name: 'MongoDB Documents',
-        type: 'mongodb',
-        status: 'running',
-        host: 'db-03.example.com',
-        port: 27017,
-        version: '7.0.4',
-        cpu_usage: 15,
-        memory_usage: 45,
-        disk_usage: 38,
-        connections: 12,
-        max_connections: 50,
-        uptime: 86400 * 20, // 20 jours
-        last_backup: '2024-01-15T04:00:00Z',
-        size: 67.8,
-        created_at: '2024-01-01T00:00:00Z',
-        ssl_enabled: false,
-        authentication: 'SCRAM-SHA-256'
-      },
-      {
-        id: 'redis-01',
-        name: 'Redis Cache',
-        type: 'redis',
-        status: 'running',
-        host: 'cache-01.example.com',
-        port: 6379,
-        version: '7.2.3',
-        cpu_usage: 8,
-        memory_usage: 25,
-        disk_usage: 12,
-        connections: 5,
-        max_connections: 1000,
-        uptime: 86400 * 15, // 15 jours
-        size: 2.1,
-        created_at: '2024-01-05T00:00:00Z',
-        ssl_enabled: false,
-        authentication: 'none'
-      },
-      {
-        id: 'elasticsearch-01',
-        name: 'Elasticsearch Logs',
-        type: 'elasticsearch',
-        status: 'maintenance',
-        host: 'search-01.example.com',
-        port: 9200,
-        version: '8.11.0',
-        cpu_usage: 0,
-        memory_usage: 12,
-        disk_usage: 85,
-        connections: 0,
-        max_connections: 100,
-        uptime: 0,
-        size: 234.7,
-        created_at: '2023-11-20T00:00:00Z',
-        ssl_enabled: true,
-        authentication: 'basic'
-      }
-    ];
 
-        setDatabases(mockDatabases);
-        setLoading(false);
+      const config = JSON.parse(savedConfig);
+
+      // Appeler l'API backend pour récupérer les bases de données
+      const data = await apiPost<{
+        success: boolean;
+        message?: string;
+        databases?: any[];
+      }>('/api/v1/proxmox/fetch-databases', {
+        url: config.url,
+        username: config.username,
+        secret: config.secret
+      });
+
+      if (data.success && data.databases && data.databases.length > 0) {
+        // Convertir les données Proxmox vers le format DatabaseInstance
+        const convertedDatabases: DatabaseInstance[] = data.databases.map((db: any) => ({
+          id: db.id || db.name || 'unknown',
+          name: db.name || db.id || 'unknown',
+          type: (db.type || 'mysql') as DatabaseInstance['type'],
+          status: (db.status === 'running' ? 'running' : db.status === 'stopped' ? 'stopped' : 'maintenance') as DatabaseInstance['status'],
+          host: db.host || 'localhost',
+          port: db.port || 3306,
+          version: db.version || 'N/A',
+          cpu_usage: db.cpu_usage || 0,
+          memory_usage: db.memory_usage || 0,
+          disk_usage: db.disk_usage || 0,
+          connections: db.connections || 0,
+          max_connections: db.max_connections || 100,
+          uptime: db.uptime || 0,
+          last_backup: db.last_backup,
+          size: db.size || 0,
+          created_at: db.created_at || new Date().toISOString(),
+          ssl_enabled: db.ssl_enabled || false,
+          authentication: db.authentication || 'none',
+          // Informations pour ouvrir la VM/LXC
+          resource_type: db.resource_type,
+          resource_id: db.resource_id,
+          node: db.node
+        }));
+
+        setDatabases(convertedDatabases);
+        console.log('✅ Bases de données chargées depuis Proxmox:', convertedDatabases.length);
+      } else {
+        // Aucune base de données détectée (normal car Proxmox ne gère pas directement les bases de données)
+        console.log('ℹ️ Aucune base de données détectée depuis Proxmox (fonctionnalité à implémenter)');
+        setDatabases([]);
+      }
     } catch (err) {
       console.error('❌ Erreur lors du chargement des données Databases:', err);
+      setDatabases([]);
+    } finally {
       setLoading(false);
     }
   };
 
-  // Message d'information pour Databases
-  useEffect(() => {
-    warning('Information', 'Les données de bases de données ne sont pas encore intégrées avec Proxmox. Cette section affiche des données de démonstration.');
-  }, []);
+  // Message d'information supprimé - les données sont maintenant intégrées
 
   useEffect(() => {
-    loadDatabasesData();
+    // Charger automatiquement les données Proxmox si la configuration existe
+    const loadDataOnMount = async () => {
+      await storage.ensureProxmoxDataLoaded();
+      // Charger les bases de données après avoir chargé les données
+      await loadDatabasesData();
+    };
+    
+    loadDataOnMount();
+  }, []);
+
+  // Rafraîchissement automatique toutes les 10 secondes
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      await storage.ensureProxmoxDataLoaded();
+      await loadDatabasesData();
+    }, 10000); // 10 secondes
+
+    return () => clearInterval(interval);
   }, []);
 
   const getTypeIcon = (type: string) => {
@@ -407,6 +374,31 @@ export function Databases() {
       default:
         break;
     }
+  };
+
+  // Fonction pour ouvrir la VM/LXC associée
+  const handleOpenResource = (db: DatabaseInstance) => {
+    if (!db.resource_type || !db.resource_id) {
+      warning('Information', 'Aucune ressource associée trouvée');
+      return;
+    }
+
+    // Déterminer la page à ouvrir
+    const targetPage = (db.resource_type === 'vm' || db.resource_type === 'qemu') ? 'vms' : 'lxc';
+    
+    // Naviguer vers la page
+    window.dispatchEvent(new CustomEvent('navigate', { detail: targetPage }));
+    
+    // Attendre un peu pour que la page se charge, puis scroller vers la ressource
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('scrollToResource', { 
+        detail: { 
+          type: targetPage, 
+          id: db.resource_id,
+          vmid: db.resource_id
+        } 
+      }));
+    }, 500);
   };
 
   const uniqueTypes = [...new Set(databases.map(db => db.type))];
@@ -628,6 +620,34 @@ export function Databases() {
                   <span>{formatSize(db.size)}</span>
                 </div>
               </div>
+
+              {/* Informations de ressource Proxmox */}
+              {db.resource_type && db.resource_id && (
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2 text-sm text-slate-600 dark:text-slate-400">
+                      {db.resource_type === 'vm' || db.resource_type === 'qemu' ? (
+                        <Monitor className="h-4 w-4" />
+                      ) : (
+                        <Container className="h-4 w-4" />
+                      )}
+                      <span>
+                        {db.resource_type === 'vm' || db.resource_type === 'qemu' ? 'VM' : 'LXC'} ID: {db.resource_id}
+                        {db.node && ` • ${db.node}`}
+                      </span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleOpenResource(db)}
+                      className="flex items-center space-x-1"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      <span>Ouvrir</span>
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {/* Sécurité */}
               <div className="flex items-center space-x-4 text-sm">

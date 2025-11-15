@@ -26,6 +26,7 @@ export function Settings() {
     url: 'https://pve.example.com:8006',
     username: '',
     secret: '',
+    password: '', // Mot de passe optionnel pour la console VNC (si différent du secret du token)
     node: 'pve',
   });
 
@@ -101,6 +102,7 @@ export function Settings() {
             url: savedProxmoxConfig.url,
             username: tokenMatch[1],
             secret: tokenMatch[2],
+            password: (savedProxmoxConfig as any).password || '',
             node: savedProxmoxConfig.node,
           });
         } else {
@@ -108,6 +110,7 @@ export function Settings() {
             url: savedProxmoxConfig.url,
             username: '',
             secret: '',
+            password: (savedProxmoxConfig as any).password || '',
             node: savedProxmoxConfig.node,
           });
         }
@@ -116,6 +119,7 @@ export function Settings() {
           url: savedProxmoxConfig.url,
           username: savedProxmoxConfig.username || '',
           secret: savedProxmoxConfig.secret || '',
+          password: (savedProxmoxConfig as any).password || '',
           node: savedProxmoxConfig.node,
         });
       }
@@ -187,9 +191,11 @@ export function Settings() {
     }
 
     // Formater le token pour l'envoi au backend
+    // Format: PVEAPIToken=username!tokenname=secret ou PVEAPIToken=username=secret
+    // Le backend gère les deux formats, donc on construit simplement le token
     const formattedConfig = {
       ...proxmoxConfig,
-      token: `PVEAPIToken=${proxmoxConfig.username}!${proxmoxConfig.secret}`
+      token: `PVEAPIToken=${proxmoxConfig.username}=${proxmoxConfig.secret}`
     };
 
     // Utiliser le manager pour valider et sauvegarder
@@ -201,20 +207,35 @@ export function Settings() {
     }
 
     try {
-      // Sauvegarder la configuration
+      // Sauvegarder la configuration d'abord
       proxmoxConfigManager.saveConfig(formattedConfig);
 
-      // Tester la connexion et récupérer les données Proxmox
+      // Tester la connexion
+      setProxmoxTestStatus('testing');
+      setProxmoxTestMessage('Test de connexion en cours...');
+      
       const result = await proxmoxConfigManager.testConnection(formattedConfig);
+      setProxmoxTestStatus(result.status);
+      setProxmoxTestMessage(result.message);
 
       if (result.status === 'success') {
-        // Récupérer les données Proxmox et les sauvegarder
-        await fetchProxmoxData();
-        success('Succès', 'Configuration Proxmox sauvegardée et connectée !\n\nLes données ont été récupérées.');
+        // Si la connexion réussit, essayer de récupérer les données Proxmox
+        try {
+          await fetchProxmoxData();
+          success('Succès', 'Configuration Proxmox sauvegardée et connectée !\n\nLes données ont été récupérées.');
+        } catch (fetchErr) {
+          // Si la récupération des données échoue, ce n'est pas critique
+          // La connexion fonctionne, mais on n'a pas pu récupérer les données
+          warning('Attention', 'Connexion Proxmox réussie, mais impossible de récupérer les données. Vérifiez les permissions de l\'utilisateur.');
+          console.error('Fetch Proxmox data error:', fetchErr);
+        }
       } else {
-        error('Erreur', 'Impossible de se connecter à Proxmox. Vérifiez vos paramètres.');
+        // La connexion a échoué
+        error('Erreur', result.message || 'Impossible de se connecter à Proxmox. Vérifiez vos paramètres.');
       }
     } catch (err) {
+      setProxmoxTestStatus('error');
+      setProxmoxTestMessage('Erreur lors de la sauvegarde');
       error('Erreur', 'Impossible de sauvegarder la configuration Proxmox');
       console.error('Save Proxmox config error:', err);
     }
@@ -284,9 +305,11 @@ export function Settings() {
     }
 
     // Formater le token pour l'envoi au backend
+    // Format: PVEAPIToken=username!tokenname=secret ou PVEAPIToken=username=secret
+    // Le backend gère les deux formats, donc on construit simplement le token
     const formattedConfig = {
       ...proxmoxConfig,
-      token: `PVEAPIToken=${proxmoxConfig.username}!${proxmoxConfig.secret}`
+      token: `PVEAPIToken=${proxmoxConfig.username}=${proxmoxConfig.secret}`
     };
 
     const validation = proxmoxConfigManager.validateConfig(formattedConfig);
@@ -296,13 +319,48 @@ export function Settings() {
       return;
     }
 
+    setProxmoxTestStatus('testing');
+    setProxmoxTestMessage('Test de connexion en cours...');
+
     try {
+      // Tester d'abord la connexion avec le token API
       const result = await proxmoxConfigManager.testConnection(formattedConfig);
       setProxmoxTestStatus(result.status);
       setProxmoxTestMessage(result.message);
 
       if (result.status === 'success') {
-        success('Succès', 'Connexion à Proxmox établie avec succès');
+        // Si le test du token API réussit, tester aussi le mot de passe si fourni
+        if (proxmoxConfig.password && proxmoxConfig.password.trim() !== '') {
+          setProxmoxTestMessage('Test du token API réussi. Vérification du mot de passe...');
+          
+          try {
+            const passwordTest = await apiPost<{ success: boolean; message?: string; error?: string; details?: string }>(
+              '/api/v1/proxmox/test-password',
+              {
+                url: proxmoxConfig.url,
+                username: proxmoxConfig.username,
+                secret: proxmoxConfig.secret,
+                password: proxmoxConfig.password
+              }
+            );
+
+            if (passwordTest.success) {
+              setProxmoxTestMessage('Connexion à Proxmox réussie ! Token API et mot de passe valides.');
+              success('Succès', 'Connexion à Proxmox établie avec succès. Token API et mot de passe valides.');
+            } else {
+              setProxmoxTestStatus('error');
+              setProxmoxTestMessage(`Token API valide, mais mot de passe invalide : ${passwordTest.error || 'Erreur inconnue'}`);
+              warning('Attention', `Le token API fonctionne, mais le mot de passe est invalide. La console VNC ne fonctionnera pas. ${passwordTest.error || ''}`);
+            }
+          } catch (passwordErr: any) {
+            setProxmoxTestStatus('error');
+            setProxmoxTestMessage(`Token API valide, mais erreur lors du test du mot de passe : ${passwordErr.message || 'Erreur inconnue'}`);
+            warning('Attention', 'Le token API fonctionne, mais impossible de tester le mot de passe. Vérifiez votre configuration.');
+          }
+        } else {
+          // Pas de mot de passe fourni, juste confirmer que le token API fonctionne
+          success('Succès', 'Connexion à Proxmox établie avec succès (token API valide). Note: Pour utiliser la console VNC, ajoutez le mot de passe de l\'utilisateur.');
+        }
       } else {
         error('Erreur', 'Échec de la connexion à Proxmox. Vérifiez vos paramètres.');
       }
@@ -319,6 +377,7 @@ export function Settings() {
       url: 'https://pve.example.com:8006',
       username: '',
       secret: '',
+      password: '',
       node: 'pve',
     });
     setProxmoxTestStatus('idle');
@@ -434,13 +493,13 @@ export function Settings() {
                   type="text"
                   value={proxmoxConfig.username}
                   onChange={(e) => setProxmoxConfig({ ...proxmoxConfig, username: e.target.value })}
-                  placeholder="user@pam"
+                  placeholder="user@pam ou user@pam!tokenname"
                   required
                 />
               </div>
               <div className="relative">
                 <Input
-                  label="Secret"
+                  label="Secret (Token API)"
                   type="password"
                   value={proxmoxConfig.secret}
                   onChange={(e) => setProxmoxConfig({ ...proxmoxConfig, secret: e.target.value })}
@@ -456,6 +515,19 @@ export function Settings() {
                   <Info className="h-4 w-4" />
                 </button>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Input
+                label="Mot de passe (optionnel - pour console VNC)"
+                type="password"
+                value={proxmoxConfig.password}
+                onChange={(e) => setProxmoxConfig({ ...proxmoxConfig, password: e.target.value })}
+                placeholder="Mot de passe de l'utilisateur (si différent du secret du token)"
+              />
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Si vous utilisez un token API, entrez ici le mot de passe de l'utilisateur pour accéder à la console VNC
+              </p>
             </div>
 
             <Input

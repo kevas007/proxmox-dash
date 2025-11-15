@@ -168,7 +168,24 @@ export function Storage() {
   };
 
   useEffect(() => {
-    loadStorageData();
+    // Charger automatiquement les données Proxmox si la configuration existe
+    const loadDataOnMount = async () => {
+      await storage.ensureProxmoxDataLoaded();
+      // Charger les storages après avoir chargé les données
+      loadStorageData();
+    };
+    
+    loadDataOnMount();
+  }, []);
+
+  // Rafraîchissement automatique toutes les 10 secondes
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      await storage.ensureProxmoxDataLoaded();
+      loadStorageData();
+    }, 10000); // 10 secondes
+
+    return () => clearInterval(interval);
   }, []);
 
   // Écouter les mises à jour des données Proxmox

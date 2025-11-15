@@ -23,6 +23,7 @@ import { useToast } from '@/components/ui/Toast';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { Loader } from '@/components/ui/Loader';
 import { apiPost } from '@/utils/api';
+import { storage } from '@/utils/storage';
 
 interface Node {
   id: string;
@@ -129,14 +130,22 @@ export function Nodes() {
 
   // Charger les nœuds au montage du composant
   useEffect(() => {
-    loadNodes();
+    // Charger automatiquement les données Proxmox si la configuration existe
+    const loadDataOnMount = async () => {
+      await storage.ensureProxmoxDataLoaded();
+      // Charger les nœuds après avoir chargé les données
+      loadNodes();
+    };
+    
+    loadDataOnMount();
   }, []);
 
-  // Rafraîchissement automatique toutes les 30 secondes
+  // Rafraîchissement automatique toutes les 10 secondes
   useEffect(() => {
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
+      await storage.ensureProxmoxDataLoaded();
       loadNodes();
-    }, 30000); // 30 secondes
+    }, 10000); // 10 secondes
 
     return () => clearInterval(interval);
   }, []);

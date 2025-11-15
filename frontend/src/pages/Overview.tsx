@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Server, Monitor, Container, Activity, HardDrive, Network, Cpu, MemoryStick, AlertTriangle, RefreshCw, Archive, Zap, Clock } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { apiPost } from '@/utils/api';
+import { storage } from '@/utils/storage';
 
 export function Overview() {
   const { t } = useTranslation();
@@ -267,8 +268,29 @@ export function Overview() {
         : 0;
 
       // Calculer les statistiques réseau depuis les vraies données
-      const activeNetworks = networks.filter((n: any) => n.status === 'up' || n.status === 'active' || n.active === true).length;
-      const totalNetworks = networks.length > 0 ? networks.length : onlineNodes.length; // Fallback sur les nœuds si pas de données réseau
+      let activeNetworks = 0;
+      let totalNetworks = 0;
+      
+      if (networks && networks.length > 0) {
+        // Utiliser les vraies données réseau
+        activeNetworks = networks.filter((n: any) => {
+          const status = String(n.status || '').toLowerCase();
+          const isActive = n.active === true || n.active === 1;
+          return status === 'active' || status === 'up' || isActive;
+        }).length;
+        totalNetworks = networks.length;
+        console.log('🌐 Statistiques réseau calculées:', {
+          total: totalNetworks,
+          active: activeNetworks,
+          networks: networks.map((n: any) => ({ name: n.name, status: n.status, active: n.active }))
+        });
+      } else {
+        // Fallback : si pas de données réseau, utiliser le nombre de nœuds en ligne
+        // (chaque nœud a généralement au moins une interface réseau)
+        totalNetworks = onlineNodes.length;
+        activeNetworks = onlineNodes.length; // On suppose que les nœuds en ligne ont des interfaces actives
+        console.warn('⚠️ Aucune donnée réseau trouvée, utilisation du fallback:', { totalNetworks, activeNetworks });
+      }
 
       const statsData = {
         nodes: {
@@ -407,12 +429,12 @@ export function Overview() {
           localStorage.removeItem('proxmoxStorages'); // Nettoyer les anciennes données
         }
         
+        // Toujours sauvegarder les données réseau, même si vides
+        localStorage.setItem('proxmoxNetworks', JSON.stringify(networksData));
         if (networksData.length > 0) {
-          localStorage.setItem('proxmoxNetworks', JSON.stringify(networksData));
           console.log('🌐 Réseaux sauvegardés:', networksData.length, 'interfaces');
         } else {
-          console.warn('⚠️ Aucune donnée réseau dans la réponse - nettoyage localStorage');
-          localStorage.removeItem('proxmoxNetworks'); // Nettoyer les anciennes données
+          console.warn('⚠️ Aucune donnée réseau dans la réponse - sauvegarde d\'un tableau vide');
         }
 
         console.log('✅ Données Proxmox rafraîchies avec succès:', {
@@ -438,36 +460,26 @@ export function Overview() {
   };
 
   useEffect(() => {
-    // Charger les statistiques au démarrage
-    loadStats();
-    loadRecentEvents();
-    
-    // Vérifier si les données sont disponibles
-    const checkData = () => {
-      const nodes = localStorage.getItem('proxmoxNodes');
-      const vms = localStorage.getItem('proxmoxVMs');
-      const lxc = localStorage.getItem('proxmoxLXC');
-      const storages = localStorage.getItem('proxmoxStorages');
-      const networks = localStorage.getItem('proxmoxNetworks');
-      
-      console.log('🔍 Vérification des données au démarrage:', {
-        nodes: nodes ? JSON.parse(nodes).length : 0,
-        vms: vms ? JSON.parse(vms).length : 0,
-        lxc: lxc ? JSON.parse(lxc).length : 0,
-        storages: storages ? JSON.parse(storages).length : 0,
-        networks: networks ? JSON.parse(networks).length : 0
-      });
-      
-      // Si aucune donnée n'est disponible, suggérer de rafraîchir
-      if (!nodes && !vms && !lxc) {
-        const proxmoxConfig = localStorage.getItem('proxmoxConfig');
-        if (proxmoxConfig) {
-          console.warn('⚠️ Configuration Proxmox trouvée mais aucune donnée. Utilisez le bouton "Rafraîchir" pour charger les données.');
-        }
-      }
+    // Charger automatiquement les données Proxmox si la configuration existe
+    const loadDataOnMount = async () => {
+      await storage.ensureProxmoxDataLoaded();
+      // Charger les statistiques après avoir chargé les données
+      loadStats();
+      loadRecentEvents();
     };
     
-    checkData();
+    loadDataOnMount();
+  }, []);
+
+  // Rafraîchissement automatique toutes les 10 secondes
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      await storage.ensureProxmoxDataLoaded();
+      loadStats();
+      loadRecentEvents();
+    }, 10000); // 10 secondes
+
+    return () => clearInterval(interval);
   }, []);
 
   // Écouter les mises à jour des données Proxmox
@@ -803,19 +815,34 @@ export function Overview() {
             <Network className="h-4 w-4 text-slate-600 dark:text-slate-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-              {stats.network.active}/{stats.network.interfaces}
-            </div>
-            <div className="flex items-center space-x-2 mt-2">
-              <Badge variant="success" size="sm">
-                {stats.network.active} {t('common.active') || 'actives'}
-              </Badge>
-              {stats.network.interfaces - stats.network.active > 0 && (
-                <Badge variant="default" size="sm">
-                  {stats.network.interfaces - stats.network.active} {t('common.inactive') || 'inactives'}
-                </Badge>
-              )}
-            </div>
+            {stats.network.interfaces > 0 ? (
+              <>
+                <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+                  {stats.network.active}/{stats.network.interfaces}
+                </div>
+                <div className="flex items-center space-x-2 mt-2">
+                  {stats.network.active > 0 && (
+                    <Badge variant="success" size="sm">
+                      {stats.network.active} {t('common.active') || 'actives'}
+                    </Badge>
+                  )}
+                  {stats.network.interfaces - stats.network.active > 0 && (
+                    <Badge variant="default" size="sm">
+                      {stats.network.interfaces - stats.network.active} {t('common.inactive') || 'inactives'}
+                    </Badge>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+                  0/0
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                  {t('overview.no_network_data') || 'Aucune donnée réseau disponible'}
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>

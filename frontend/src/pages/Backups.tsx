@@ -28,6 +28,8 @@ import { useToast } from '@/components/ui/Toast';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { Loader } from '@/components/ui/Loader';
 import { exportToCSV } from '@/utils/export';
+import { apiPost } from '@/utils/api';
+import { storage } from '@/utils/storage';
 
 interface Backup {
   id: string;
@@ -70,123 +72,87 @@ export function Backups() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const { success, error, warning } = useToast();
 
-  // Charger les données Backups depuis localStorage
-  const loadBackupsData = () => {
+  // Charger les données Backups depuis Proxmox
+  const loadBackupsData = async () => {
     try {
-      // Vérifier si on est en production
-      const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+      setLoading(true);
       
-      // En production, ne pas charger de données mockées
-      if (isProduction) {
-        console.log('⚠️ Production: Backups n\'est pas encore intégré avec Proxmox');
+      // Essayer de charger les données Proxmox réelles
+      const savedConfig = localStorage.getItem('proxmoxConfig');
+      if (!savedConfig) {
+        console.log('⚠️ Aucune configuration Proxmox trouvée');
         setBackups([]);
         setLoading(false);
         return;
       }
-      
-      // En développement uniquement, charger les données mockées
-      console.log('⚠️ Développement: Chargement des données Backups mockées');
-      const mockBackups: Backup[] = [
-      {
-        id: 'backup-vm-101-20240115',
-        name: 'VM-101 Daily Backup',
-        type: 'vm',
-        status: 'completed',
-        size: 12.5,
-        duration: 15,
-        started_at: '2024-01-15T02:00:00Z',
-        completed_at: '2024-01-15T02:15:00Z',
-        next_run: '2024-01-16T02:00:00Z',
-        node: 'pve-01',
-        target: 'local-lvm',
-        retention: 7,
-        compression: true,
-        encryption: false,
-        created_at: '2024-01-01T00:00:00Z',
-        vmid: 101
-      },
-      {
-        id: 'backup-lxc-201-20240115',
-        name: 'LXC-201 Weekly Backup',
-        type: 'lxc',
-        status: 'running',
-        size: 0,
-        duration: 0,
-        started_at: '2024-01-15T03:00:00Z',
-        node: 'pve-01',
-        target: 'nfs-shared',
-        retention: 30,
-        compression: true,
-        encryption: true,
-        created_at: '2024-01-01T00:00:00Z',
-        lxc_id: 201
-      },
-      {
-        id: 'backup-host-20240114',
-        name: 'Host Configuration Backup',
-        type: 'host',
-        status: 'completed',
-        size: 0.5,
-        duration: 2,
-        started_at: '2024-01-14T01:00:00Z',
-        completed_at: '2024-01-14T01:02:00Z',
-        next_run: '2024-01-21T01:00:00Z',
-        node: 'pve-01',
-        target: 'local-lvm',
-        retention: 90,
-        compression: true,
-        encryption: true,
-        created_at: '2023-12-01T00:00:00Z'
-      },
-      {
-        id: 'backup-storage-20240113',
-        name: 'Storage Pool Backup',
-        type: 'storage',
-        status: 'failed',
-        size: 0,
-        duration: 0,
-        started_at: '2024-01-13T04:00:00Z',
-        node: 'pve-02',
-        target: 'ceph-cluster',
-        retention: 14,
-        compression: false,
-        encryption: false,
-        created_at: '2024-01-10T00:00:00Z'
-      },
-      {
-        id: 'backup-vm-102-20240112',
-        name: 'VM-102 Monthly Backup',
-        type: 'vm',
-        status: 'scheduled',
-        size: 0,
-        duration: 0,
-        started_at: '2024-01-12T00:00:00Z',
-        next_run: '2024-02-12T00:00:00Z',
-        node: 'pve-02',
-        target: 'nfs-shared',
-        retention: 365,
-        compression: true,
-        encryption: true,
-        created_at: '2023-12-12T00:00:00Z',
-        vmid: 102
-      }
-    ];
 
-        setBackups(mockBackups);
-        setLoading(false);
+      const config = JSON.parse(savedConfig);
+
+      // Appeler l'API backend pour récupérer les backups
+      const data = await apiPost<{
+        success: boolean;
+        message?: string;
+        backups?: any[];
+      }>('/api/v1/proxmox/fetch-backups', {
+        url: config.url,
+        username: config.username,
+        secret: config.secret
+      });
+
+      if (data.success && data.backups) {
+        // Convertir les données Proxmox vers le format Backup
+        const convertedBackups: Backup[] = data.backups.map((backup: any) => ({
+          id: backup.id || backup.name || 'unknown',
+          name: backup.name || backup.id || 'unknown',
+          type: (backup.type === 'lxc' ? 'lxc' : 'vm') as Backup['type'],
+          status: (backup.status === 'completed' ? 'completed' : backup.status === 'running' ? 'running' : 'failed') as Backup['status'],
+          size: backup.size || 0,
+          duration: backup.duration || 0,
+          started_at: backup.started_at || backup.created_at || new Date().toISOString(),
+          completed_at: backup.completed_at,
+          node: backup.node || 'unknown',
+          target: 'local', // Valeur par défaut
+          retention: 7, // Valeur par défaut
+          compression: false, // Non disponible dans les données Proxmox de base
+          encryption: false, // Non disponible dans les données Proxmox de base
+          created_at: backup.created_at || backup.started_at || new Date().toISOString(),
+          vmid: backup.vmid,
+          lxc_id: backup.type === 'lxc' ? backup.vmid : undefined
+        }));
+
+        setBackups(convertedBackups);
+        console.log('✅ Backups chargés depuis Proxmox:', convertedBackups.length);
+      } else {
+        console.warn('⚠️ Aucune donnée backup trouvée ou erreur:', data.message);
+        setBackups([]);
+      }
     } catch (err) {
       console.error('❌ Erreur lors du chargement des données Backups:', err);
+      setBackups([]);
+    } finally {
       setLoading(false);
     }
   };
 
-  // Message d'information pour Backups
   useEffect(() => {
-    warning('Information', 'Les données de sauvegarde ne sont pas encore intégrées avec Proxmox. Cette section affiche des données de démonstration.');
+    // Charger automatiquement les données Proxmox si la configuration existe
+    const loadDataOnMount = async () => {
+      await storage.ensureProxmoxDataLoaded();
+      // Charger les backups après avoir chargé les données
+      await loadBackupsData();
+    };
+    
+    loadDataOnMount();
   }, []);
 
+  // Rafraîchissement automatique toutes les 10 secondes
   useEffect(() => {
-    loadBackupsData();
+    const interval = setInterval(async () => {
+      await storage.ensureProxmoxDataLoaded();
+      await loadBackupsData();
+    }, 10000); // 10 secondes
+
+    return () => clearInterval(interval);
   }, []);
 
   const getTypeIcon = (type: string) => {

@@ -20,6 +20,8 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import { exportToCSV } from '@/utils/export';
+import { apiPost } from '@/utils/api';
+import { storage } from '@/utils/storage';
 
 interface Task {
   id: number;
@@ -54,126 +56,98 @@ export function TasksLogs() {
   const [levelFilter, setLevelFilter] = useState<string>('all');
   const { success } = useToast();
 
-  // Charger les données TasksLogs depuis localStorage
-  const loadTasksLogsData = () => {
+  // Charger les données TasksLogs depuis Proxmox
+  const loadTasksLogsData = async () => {
     try {
-      // Vérifier si on est en production
-      const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+      setLoading(true);
       
-      // En production, ne pas charger de données mockées
-      if (isProduction) {
-        console.log('⚠️ Production: TasksLogs n\'est pas encore intégré avec Proxmox');
+      // Essayer de charger les données Proxmox réelles
+      const savedConfig = localStorage.getItem('proxmoxConfig');
+      if (!savedConfig) {
+        console.log('⚠️ Aucune configuration Proxmox trouvée');
         setTasks([]);
         setLogs([]);
         setLoading(false);
         return;
       }
-      
-      // En développement uniquement, charger les données mockées
-      console.log('⚠️ Développement: Chargement des données TasksLogs mockées');
-      const mockTasks: Task[] = [
-      {
-        id: 1,
-        name: 'Sauvegarde VM-101',
-        type: 'backup',
-        status: 'completed',
-        progress: 100,
-        started_at: '2024-01-15T10:30:00Z',
-        completed_at: '2024-01-15T11:45:00Z',
-        duration: 75,
-        user: 'admin',
-        node: 'pve-01',
-        details: 'Sauvegarde complète de la VM-101 vers le stockage local'
-      },
-      {
-        id: 2,
-        name: 'Migration VM-205',
-        type: 'migration',
-        status: 'running',
-        progress: 65,
-        started_at: '2024-01-15T14:20:00Z',
-        user: 'admin',
-        node: 'pve-02',
-        details: 'Migration de VM-205 vers pve-03'
-      },
-      {
-        id: 3,
-        name: 'Mise à jour système',
-        type: 'maintenance',
-        status: 'failed',
-        progress: 30,
-        started_at: '2024-01-15T09:00:00Z',
-        completed_at: '2024-01-15T09:15:00Z',
-        duration: 15,
-        user: 'admin',
-        node: 'pve-01',
-        details: 'Échec de la mise à jour - conflit de dépendances'
-      },
-      {
-        id: 4,
-        name: 'Déploiement app-web',
-        type: 'deployment',
-        status: 'pending',
-        progress: 0,
-        started_at: '2024-01-15T16:00:00Z',
-        user: 'admin',
-        node: 'pve-03',
-        details: 'Déploiement de la nouvelle version de l\'application web'
-      }
-    ];
 
-    const mockLogs: LogEntry[] = [
-      {
-        id: 1,
-        timestamp: '2024-01-15T14:25:30Z',
-        level: 'info',
-        source: 'backup',
-        message: 'Sauvegarde VM-101 terminée avec succès',
-        task_id: 1
-      },
-      {
-        id: 2,
-        timestamp: '2024-01-15T14:20:15Z',
-        level: 'warning',
-        source: 'migration',
-        message: 'Migration VM-205 - Transfert en cours (65%)',
-        task_id: 2
-      },
-      {
-        id: 3,
-        timestamp: '2024-01-15T09:15:00Z',
-        level: 'error',
-        source: 'maintenance',
-        message: 'Échec de la mise à jour système - conflit de dépendances',
-        task_id: 3
-      },
-      {
-        id: 4,
-        timestamp: '2024-01-15T14:18:45Z',
-        level: 'debug',
-        source: 'system',
-        message: 'Vérification de l\'espace disque disponible'
-      },
-      {
-        id: 5,
-        timestamp: '2024-01-15T14:15:20Z',
-        level: 'info',
-        source: 'network',
-        message: 'Connexion réseau rétablie sur pve-02'
-      }
-    ];
+      const config = JSON.parse(savedConfig);
 
-        setTasks(mockTasks);
-        setLogs(mockLogs);
-        setLoading(false);
+      // Appeler l'API backend pour récupérer les tâches
+      const data = await apiPost<{
+        success: boolean;
+        message?: string;
+        tasks?: any[];
+      }>('/api/v1/proxmox/fetch-tasks', {
+        url: config.url,
+        username: config.username,
+        secret: config.secret
+      });
+
+      if (data.success && data.tasks) {
+        // Convertir les données Proxmox vers le format Task
+        const convertedTasks: Task[] = data.tasks.map((task: any, index: number) => ({
+          id: index + 1,
+          name: task.name || task.id || 'unknown',
+          type: (task.type === 'vzdump' ? 'backup' : task.type === 'migrate' ? 'migration' : 'maintenance') as Task['type'],
+          status: (task.status === 'running' ? 'running' : task.status === 'completed' ? 'completed' : task.status === 'failed' ? 'failed' : 'pending') as Task['status'],
+          progress: task.progress || 0,
+          started_at: task.started_at || task.created_at || new Date().toISOString(),
+          completed_at: task.completed_at,
+          duration: task.duration,
+          user: task.user || 'admin',
+          node: task.node || 'unknown',
+          details: task.details || ''
+        }));
+
+        setTasks(convertedTasks);
+        console.log('✅ Tâches chargées depuis Proxmox:', convertedTasks.length);
+        
+        // Les logs ne sont pas disponibles directement depuis l'API Proxmox
+        // On peut créer des logs basés sur les tâches
+        const convertedLogs: LogEntry[] = convertedTasks.map((task, index) => ({
+          id: index + 1,
+          timestamp: task.started_at,
+          level: task.status === 'completed' ? 'info' : task.status === 'failed' ? 'error' : 'warning' as LogEntry['level'],
+          source: task.type,
+          message: task.details || `${task.name} - ${task.status}`,
+          task_id: task.id
+        }));
+        
+        setLogs(convertedLogs);
+      } else {
+        console.warn('⚠️ Aucune donnée task trouvée ou erreur:', data.message);
+        setTasks([]);
+        setLogs([]);
+      }
     } catch (err) {
       console.error('❌ Erreur lors du chargement des données TasksLogs:', err);
+      setTasks([]);
+      setLogs([]);
+    } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadTasksLogsData();
+    // Charger automatiquement les données Proxmox si la configuration existe
+    const loadDataOnMount = async () => {
+      await storage.ensureProxmoxDataLoaded();
+      // Charger les tâches après avoir chargé les données
+      await loadTasksLogsData();
+    };
+    
+    loadDataOnMount();
+  }, []);
+
+  // Rafraîchissement automatique toutes les 10 secondes
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      await storage.ensureProxmoxDataLoaded();
+      await loadTasksLogsData();
+    }, 10000); // 10 secondes
+
+    return () => clearInterval(interval);
   }, []);
 
   const getStatusIcon = (status: string) => {

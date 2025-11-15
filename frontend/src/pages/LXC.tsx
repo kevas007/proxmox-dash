@@ -201,7 +201,24 @@ export function LXC() {
   };
 
   useEffect(() => {
-    loadContainers();
+    // Charger automatiquement les données Proxmox si la configuration existe
+    const loadDataOnMount = async () => {
+      await storage.ensureProxmoxDataLoaded();
+      // Charger les conteneurs après avoir chargé les données
+      loadContainers();
+    };
+    
+    loadDataOnMount();
+  }, []);
+
+  // Rafraîchissement automatique toutes les 10 secondes
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      await storage.ensureProxmoxDataLoaded();
+      loadContainers();
+    }, 10000); // 10 secondes
+
+    return () => clearInterval(interval);
   }, []);
 
   // Écouter les mises à jour des données Proxmox

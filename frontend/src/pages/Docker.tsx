@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Container,
   Play,
@@ -27,6 +27,8 @@ import { useToast } from '@/components/ui/Toast';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { Loader } from '@/components/ui/Loader';
 import { exportToCSV } from '@/utils/export';
+import { apiPost } from '@/utils/api';
+import { storage } from '@/utils/storage';
 
 interface DockerContainer {
   id: string;
@@ -76,146 +78,93 @@ export function Docker() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const { success, error, warning } = useToast();
-  const hasShownWarning = useRef(false);
 
-  // Charger les données Docker depuis localStorage
-  const loadDockerData = () => {
+  // Charger les données Docker depuis Proxmox
+  const loadDockerData = async () => {
     try {
-      // Vérifier si on est en production
-      const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+      setLoading(true);
       
-      // En production, ne pas charger de données mockées
-      if (isProduction) {
-        console.log('⚠️ Production: Docker n\'est pas encore intégré avec Proxmox');
+      // Essayer de charger les données Proxmox réelles
+      const savedConfig = localStorage.getItem('proxmoxConfig');
+      if (!savedConfig) {
+        console.log('⚠️ Aucune configuration Proxmox trouvée');
         setContainers([]);
         setImages([]);
         setLoading(false);
         return;
       }
-      
-      // En développement uniquement, charger les données mockées
-      console.log('⚠️ Développement: Chargement des données Docker mockées');
-      const mockContainers: DockerContainer[] = [
-      {
-        id: 'abc123def456',
-        name: 'nginx-proxy',
-        status: 'running',
-        image: 'nginx',
-        tag: 'alpine',
-        cpu_usage: 12,
-        memory_usage: 45,
-        memory_limit: 512,
-        uptime: 86400 * 7, // 7 jours
-        ports: ['80:80', '443:443'],
-        created_at: '2024-01-08T10:00:00Z',
-        restart_policy: 'unless-stopped',
-        network: 'bridge',
-        volumes: ['/var/log/nginx:/var/log/nginx']
-      },
-      {
-        id: 'def456ghi789',
-        name: 'mysql-database',
-        status: 'running',
-        image: 'mysql',
-        tag: '8.0',
-        cpu_usage: 25,
-        memory_usage: 78,
-        memory_limit: 1024,
-        uptime: 86400 * 15, // 15 jours
-        ports: ['3306:3306'],
-        created_at: '2023-12-20T00:00:00Z',
-        restart_policy: 'always',
-        network: 'bridge',
-        volumes: ['/var/lib/mysql:/var/lib/mysql']
-      },
-      {
-        id: 'ghi789jkl012',
-        name: 'redis-cache',
-        status: 'stopped',
-        image: 'redis',
-        tag: 'alpine',
-        cpu_usage: 0,
-        memory_usage: 0,
-        memory_limit: 256,
-        uptime: 0,
-        ports: ['6379:6379'],
-        created_at: '2024-01-10T00:00:00Z',
-        restart_policy: 'no',
-        network: 'bridge',
-        volumes: []
-      },
-      {
-        id: 'jkl012mno345',
-        name: 'app-backend',
-        status: 'running',
-        image: 'node',
-        tag: '18-alpine',
-        cpu_usage: 35,
-        memory_usage: 65,
-        memory_limit: 512,
-        uptime: 86400 * 3, // 3 jours
-        ports: ['3000:3000'],
-        created_at: '2024-01-12T00:00:00Z',
-        restart_policy: 'unless-stopped',
-        network: 'bridge',
-        volumes: ['/app/logs:/app/logs']
-      }
-    ];
 
-    const mockImages: DockerImage[] = [
-      {
-        id: 'nginx:alpine',
-        name: 'nginx',
-        tag: 'alpine',
-        size: 23.4,
-        created_at: '2024-01-08T10:00:00Z',
-        last_used: '2024-01-15T14:30:00Z'
-      },
-      {
-        id: 'mysql:8.0',
-        name: 'mysql',
-        tag: '8.0',
-        size: 456.7,
-        created_at: '2023-12-20T00:00:00Z',
-        last_used: '2024-01-15T14:30:00Z'
-      },
-      {
-        id: 'redis:alpine',
-        name: 'redis',
-        tag: 'alpine',
-        size: 12.8,
-        created_at: '2024-01-10T00:00:00Z',
-        last_used: '2024-01-14T10:00:00Z'
-      },
-      {
-        id: 'node:18-alpine',
-        name: 'node',
-        tag: '18-alpine',
-        size: 89.2,
-        created_at: '2024-01-12T00:00:00Z',
-        last_used: '2024-01-15T14:30:00Z'
-      }
-    ];
+      const config = JSON.parse(savedConfig);
 
-        setContainers(mockContainers);
-        setImages(mockImages);
-        setLoading(false);
+      // Appeler l'API backend pour récupérer les conteneurs Docker (via LXC)
+      const data = await apiPost<{
+        success: boolean;
+        message?: string;
+        containers?: any[];
+      }>('/api/v1/proxmox/fetch-docker', {
+        url: config.url,
+        username: config.username,
+        secret: config.secret
+      });
+
+      if (data.success && data.containers) {
+        // Convertir les données Proxmox vers le format DockerContainer
+        const convertedContainers: DockerContainer[] = data.containers.map((container: any) => ({
+          id: container.id || 'unknown',
+          name: container.name || 'unknown',
+          status: (container.status === 'running' ? 'running' : container.status === 'stopped' ? 'stopped' : 'exited') as DockerContainer['status'],
+          image: container.image || 'proxmox-lxc',
+          tag: container.tag || 'latest',
+          cpu_usage: container.cpu_usage || 0,
+          memory_usage: container.memory_usage || 0,
+          memory_limit: container.memory_limit || 0,
+          uptime: container.uptime || 0,
+          ports: container.ports || [],
+          created_at: container.created_at || new Date().toISOString(),
+          restart_policy: 'unless-stopped', // Valeur par défaut
+          network: 'bridge', // Valeur par défaut
+          volumes: [] // Non disponible dans les données Proxmox de base
+        }));
+
+        setContainers(convertedContainers);
+        // Les images Docker ne sont pas disponibles depuis Proxmox
+        setImages([]);
+        console.log('✅ Conteneurs Docker chargés depuis Proxmox:', convertedContainers.length);
+      } else {
+        console.warn('⚠️ Aucune donnée Docker trouvée ou erreur:', data.message);
+        setContainers([]);
+        setImages([]);
+      }
     } catch (err) {
       console.error('❌ Erreur lors du chargement des données Docker:', err);
+      setContainers([]);
+      setImages([]);
+    } finally {
       setLoading(false);
     }
   };
 
-  // Message d'information pour Docker
-  useEffect(() => {
-    if (!hasShownWarning.current) {
-      warning('Information', 'Les données Docker ne sont pas encore intégrées avec Proxmox. Cette section affiche des données de démonstration.');
-      hasShownWarning.current = true;
-    }
-  }, [warning]);
+  // Message d'information supprimé - les données sont maintenant intégrées
 
   useEffect(() => {
-    loadDockerData();
+    // Charger automatiquement les données Proxmox si la configuration existe
+    const loadDataOnMount = async () => {
+      await storage.ensureProxmoxDataLoaded();
+      // Charger les conteneurs Docker après avoir chargé les données
+      await loadDockerData();
+    };
+    
+    loadDataOnMount();
+  }, []);
+
+  // Rafraîchissement automatique toutes les 10 secondes
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      await storage.ensureProxmoxDataLoaded();
+      await loadDockerData();
+    }, 10000); // 10 secondes
+
+    return () => clearInterval(interval);
   }, []);
 
   const getStatusIcon = (status: string) => {

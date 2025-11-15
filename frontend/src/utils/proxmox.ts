@@ -8,6 +8,7 @@ export interface ProxmoxConfig {
   node: string;
   username?: string;
   secret?: string;
+  password?: string; // Mot de passe optionnel pour la console VNC (si différent du secret du token)
 }
 
 export interface ProxmoxConnectionStatus {
@@ -128,13 +129,55 @@ class ProxmoxConfigManager {
     };
 
     try {
-      // Simulation d'un test de connexion Proxmox
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Importer apiPost dynamiquement pour éviter les dépendances circulaires
+      const { apiPost } = await import('./api');
 
-      // Simuler une réponse de test
-      const isConnected = Math.random() > 0.3; // 70% de chance de succès pour la démo
+      // Extraire username et secret depuis le token si nécessaire
+      let username = configToTest.username || '';
+      let secret = configToTest.secret || '';
 
-      if (isConnected) {
+      // Si le token est fourni mais pas username/secret, extraire depuis le token
+      if (configToTest.token && (!username || !secret)) {
+        if (configToTest.token.startsWith('PVEAPIToken=')) {
+          const tokenPart = configToTest.token.replace('PVEAPIToken=', '');
+          // Format peut être: username!tokenname=secret ou username=secret
+          if (tokenPart.includes('!') && tokenPart.includes('=')) {
+            // Format: username!tokenname=secret
+            const equalIndex = tokenPart.lastIndexOf('=');
+            if (equalIndex > 0) {
+              username = tokenPart.substring(0, equalIndex); // username!tokenname
+              secret = tokenPart.substring(equalIndex + 1); // secret
+            }
+          } else if (tokenPart.includes('=')) {
+            // Format: username=secret
+            const parts = tokenPart.split('=');
+            if (parts.length >= 2) {
+              username = parts[0];
+              secret = parts.slice(1).join('=');
+            }
+          }
+        }
+      }
+
+      // Si toujours pas de username/secret, utiliser les valeurs par défaut
+      if (!username) username = configToTest.username || '';
+      if (!secret) secret = configToTest.secret || '';
+
+      // Tester la connexion en appelant l'endpoint fetch-data du backend
+      // Le backend va tester la connexion en récupérant les nœuds
+      const result = await apiPost<{
+        success: boolean;
+        message?: string;
+        nodes?: any[];
+        error?: string;
+      }>('/api/v1/proxmox/fetch-data', {
+        url: configToTest.url,
+        username: username,
+        secret: secret,
+        node: configToTest.node || 'pve'
+      });
+
+      if (result.success) {
         this.connectionStatus = {
           status: 'success',
           message: 'Connexion à Proxmox réussie !',
@@ -143,14 +186,34 @@ class ProxmoxConfigManager {
       } else {
         this.connectionStatus = {
           status: 'error',
-          message: 'Impossible de se connecter à Proxmox',
+          message: result.message || result.error || 'Impossible de se connecter à Proxmox',
           lastTest: new Date()
         };
       }
-    } catch (error) {
+    } catch (error: any) {
+      // Gérer les erreurs d'API
+      let errorMessage = 'Erreur lors du test de connexion';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      } else if (error?.error) {
+        errorMessage = error.error;
+      }
+
+      // Messages d'erreur plus explicites
+      if (errorMessage.includes('401') || errorMessage.includes('authentication')) {
+        errorMessage = 'Erreur d\'authentification : Vérifiez vos credentials (utilisateur et secret)';
+      } else if (errorMessage.includes('no such host') || errorMessage.includes('lookup') || errorMessage.includes('ECONNREFUSED')) {
+        errorMessage = 'Impossible de se connecter au serveur Proxmox. Vérifiez l\'URL et que le serveur est accessible.';
+      } else if (errorMessage.includes('timeout')) {
+        errorMessage = 'Timeout lors de la connexion. Le serveur Proxmox ne répond pas.';
+      }
+
       this.connectionStatus = {
         status: 'error',
-        message: 'Erreur lors du test de connexion',
+        message: errorMessage,
         lastTest: new Date()
       };
     }

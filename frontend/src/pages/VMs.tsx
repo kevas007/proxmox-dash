@@ -201,7 +201,24 @@ export function VMs() {
   };
 
   useEffect(() => {
-    loadVMs();
+    // Charger automatiquement les données Proxmox si la configuration existe
+    const loadDataOnMount = async () => {
+      await storage.ensureProxmoxDataLoaded();
+      // Charger les VMs après avoir chargé les données
+      loadVMs();
+    };
+    
+    loadDataOnMount();
+  }, []);
+
+  // Rafraîchissement automatique toutes les 10 secondes
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      await storage.ensureProxmoxDataLoaded();
+      loadVMs();
+    }, 10000); // 10 secondes
+
+    return () => clearInterval(interval);
   }, []);
 
   // Écouter les mises à jour des données Proxmox
@@ -364,48 +381,35 @@ export function VMs() {
       }
 
       const config = JSON.parse(savedConfig);
-      const base = config.url.replace(/\/$/, '');
-      
-      // Vérifier si c'est une URL de développement fictive
-      const isDevUrl = base.includes('proxmox-dev.local') || base.includes('localhost') || base.includes('127.0.0.1');
-      
-      if (isDevUrl) {
-        warning(
-          'Configuration de développement',
-          'Cette action nécessite une connexion Proxmox réelle. Veuillez configurer une connexion Proxmox réelle dans les Paramètres pour utiliser cette fonctionnalité.'
-        );
-        return;
-      }
       
       console.log(`🚀 Démarrage de la VM ${vm.name} (${vm.vmid}) sur ${vm.node}...`);
       
-      const response = await fetch(`${config.url}/api2/json/nodes/${vm.node}/qemu/${vm.vmid}/status/start`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `PVEAPIToken=${config.username}=${config.secret}`,
-          'Content-Type': 'application/json',
+      const response = await apiPost<{ success: boolean; message?: string; error?: string }>(
+        '/api/v1/proxmox/vm/start',
+        {
+          url: config.url,
+          username: config.username,
+          secret: config.secret,
+          node: vm.node,
+          vmid: vm.vmid
         }
-      });
-
-      const responseData = await response.json();
-      console.log('Réponse Proxmox:', responseData);
-
-      if (response.ok) {
-      setVMs(prevVMs =>
-        prevVMs.map(v =>
-          v.id === vm.id
-            ? { ...v, status: 'running' as const, uptime: 0 }
-            : v
-        )
       );
+
+      if (response.success) {
+        setVMs(prevVMs =>
+          prevVMs.map(v =>
+            v.id === vm.id
+              ? { ...v, status: 'running' as const, uptime: 0 }
+              : v
+          )
+        );
         success('Succès', `VM ${vm.name} en cours de démarrage`);
         // Rafraîchir les données après 2 secondes
         setTimeout(() => {
           refreshVMs();
         }, 2000);
       } else {
-        const errorMsg = responseData?.data || `Erreur HTTP ${response.status}`;
-        throw new Error(errorMsg);
+        throw new Error(response.error || 'Erreur inconnue');
       }
     } catch (err: any) {
       console.error('Erreur démarrage VM:', err);
@@ -429,48 +433,34 @@ export function VMs() {
           }
 
           const config = JSON.parse(savedConfig);
-          const base = config.url.replace(/\/$/, '');
-          
-          // Vérifier si c'est une URL de développement fictive
-          const isDevUrl = base.includes('proxmox-dev.local') || base.includes('localhost') || base.includes('127.0.0.1');
-          
-          if (isDevUrl) {
-            warning(
-              'Configuration de développement',
-              'Cette action nécessite une connexion Proxmox réelle. Veuillez configurer une connexion Proxmox réelle dans les Paramètres pour utiliser cette fonctionnalité.'
-            );
-            return;
-          }
           
           console.log(`🛑 Arrêt de la VM ${vm.name} (${vm.vmid}) sur ${vm.node}...`);
           
-          const response = await fetch(`${config.url}/api2/json/nodes/${vm.node}/qemu/${vm.vmid}/status/stop`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `PVEAPIToken=${config.username}=${config.secret}`,
-              'Content-Type': 'application/json',
+          const response = await apiPost<{ success: boolean; message?: string; error?: string }>(
+            '/api/v1/proxmox/vm/stop',
+            {
+              url: config.url,
+              username: config.username,
+              secret: config.secret,
+              node: vm.node,
+              vmid: vm.vmid
             }
-          });
+          );
 
-          const responseData = await response.json();
-          console.log('Réponse Proxmox:', responseData);
-
-          if (response.ok) {
-      setVMs(prevVMs =>
-        prevVMs.map(v =>
-          v.id === vm.id
-            ? { ...v, status: 'stopped' as const, uptime: 0, cpu_usage: 0, memory_usage: 0 }
-            : v
-        )
-      );
+          if (response.success) {
+            setVMs(prevVMs =>
+              prevVMs.map(v =>
+                v.id === vm.id
+                  ? { ...v, status: 'stopped' as const, uptime: 0, cpu_usage: 0, memory_usage: 0 }
+                  : v
+              )
+            );
             success('Succès', `VM ${vm.name} en cours d'arrêt`);
-            // Rafraîchir les données après 2 secondes
             setTimeout(() => {
               refreshVMs();
             }, 2000);
           } else {
-            const errorMsg = responseData?.data || `Erreur HTTP ${response.status}`;
-            throw new Error(errorMsg);
+            throw new Error(response.error || 'Erreur inconnue');
           }
         } catch (err: any) {
           console.error('Erreur arrêt VM:', err);
@@ -490,48 +480,34 @@ export function VMs() {
       }
 
       const config = JSON.parse(savedConfig);
-      const base = config.url.replace(/\/$/, '');
-      
-      // Vérifier si c'est une URL de développement fictive
-      const isDevUrl = base.includes('proxmox-dev.local') || base.includes('localhost') || base.includes('127.0.0.1');
-      
-      if (isDevUrl) {
-        warning(
-          'Configuration de développement',
-          'Cette action nécessite une connexion Proxmox réelle. Veuillez configurer une connexion Proxmox réelle dans les Paramètres pour utiliser cette fonctionnalité.'
-        );
-        return;
-      }
       
       console.log(`⏸️ Mise en pause de la VM ${vm.name} (${vm.vmid}) sur ${vm.node}...`);
       
-      const response = await fetch(`${config.url}/api2/json/nodes/${vm.node}/qemu/${vm.vmid}/status/suspend`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `PVEAPIToken=${config.username}=${config.secret}`,
-          'Content-Type': 'application/json',
+      const response = await apiPost<{ success: boolean; message?: string; error?: string }>(
+        '/api/v1/proxmox/vm/pause',
+        {
+          url: config.url,
+          username: config.username,
+          secret: config.secret,
+          node: vm.node,
+          vmid: vm.vmid
         }
-      });
-
-      const responseData = await response.json();
-      console.log('Réponse Proxmox:', responseData);
-
-      if (response.ok) {
-      setVMs(prevVMs =>
-        prevVMs.map(v =>
-          v.id === vm.id
-            ? { ...v, status: 'paused' as const }
-            : v
-        )
       );
-      success('Succès', `VM ${vm.name} mise en pause`);
-        // Rafraîchir les données après 2 secondes
+
+      if (response.success) {
+        setVMs(prevVMs =>
+          prevVMs.map(v =>
+            v.id === vm.id
+              ? { ...v, status: 'paused' as const }
+              : v
+          )
+        );
+        success('Succès', `VM ${vm.name} mise en pause`);
         setTimeout(() => {
           refreshVMs();
         }, 2000);
       } else {
-        const errorMsg = responseData?.data || `Erreur HTTP ${response.status}`;
-        throw new Error(errorMsg);
+        throw new Error(response.error || 'Erreur inconnue');
       }
     } catch (err: any) {
       console.error('Erreur pause VM:', err);
@@ -555,48 +531,34 @@ export function VMs() {
           }
 
           const config = JSON.parse(savedConfig);
-          const base = config.url.replace(/\/$/, '');
-          
-          // Vérifier si c'est une URL de développement fictive
-          const isDevUrl = base.includes('proxmox-dev.local') || base.includes('localhost') || base.includes('127.0.0.1');
-          
-          if (isDevUrl) {
-            warning(
-              'Configuration de développement',
-              'Cette action nécessite une connexion Proxmox réelle. Veuillez configurer une connexion Proxmox réelle dans les Paramètres pour utiliser cette fonctionnalité.'
-            );
-            return;
-          }
           
           console.log(`🔄 Redémarrage de la VM ${vm.name} (${vm.vmid}) sur ${vm.node}...`);
           
-          const response = await fetch(`${config.url}/api2/json/nodes/${vm.node}/qemu/${vm.vmid}/status/reboot`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `PVEAPIToken=${config.username}=${config.secret}`,
-              'Content-Type': 'application/json',
+          const response = await apiPost<{ success: boolean; message?: string; error?: string }>(
+            '/api/v1/proxmox/vm/restart',
+            {
+              url: config.url,
+              username: config.username,
+              secret: config.secret,
+              node: vm.node,
+              vmid: vm.vmid
             }
-          });
+          );
 
-          const responseData = await response.json();
-          console.log('Réponse Proxmox:', responseData);
-
-          if (response.ok) {
-      setVMs(prevVMs =>
-        prevVMs.map(v =>
-          v.id === vm.id
-            ? { ...v, status: 'running' as const, uptime: 0 }
-            : v
-        )
-      );
+          if (response.success) {
+            setVMs(prevVMs =>
+              prevVMs.map(v =>
+                v.id === vm.id
+                  ? { ...v, status: 'running' as const, uptime: 0 }
+                  : v
+              )
+            );
             success('Succès', `VM ${vm.name} en cours de redémarrage`);
-            // Rafraîchir les données après 3 secondes
             setTimeout(() => {
               refreshVMs();
             }, 3000);
           } else {
-            const errorMsg = responseData?.data || `Erreur HTTP ${response.status}`;
-            throw new Error(errorMsg);
+            throw new Error(response.error || 'Erreur inconnue');
           }
         } catch (err: any) {
           console.error('Erreur redémarrage VM:', err);
@@ -607,7 +569,7 @@ export function VMs() {
     });
   };
 
-  const handleVMConfig = (vm: VM) => {
+  const handleVMConfig = async (vm: VM) => {
     try {
       const savedConfig = localStorage.getItem('proxmoxConfig');
       if (!savedConfig) {
@@ -616,30 +578,36 @@ export function VMs() {
       }
 
       const config = JSON.parse(savedConfig);
-      const base = config.url.replace(/\/$/, '');
       
-      // Vérifier si c'est une URL de développement fictive
-      const isDevUrl = base.includes('proxmox-dev.local') || base.includes('localhost') || base.includes('127.0.0.1');
-      
-      if (isDevUrl) {
-        warning(
-          'Configuration de développement',
-          'La configuration Proxmox ne peut pas être ouverte avec une configuration fictive. Veuillez configurer une connexion Proxmox réelle dans les Paramètres pour utiliser cette fonctionnalité.'
-        );
-        return;
-      }
-      
-      // Ouvrir la page de configuration de la VM dans Proxmox
-      const configUrl = `${base}/?vmid=${vm.vmid}&node=${encodeURIComponent(vm.node)}`;
+
       console.log(`⚙️ Ouverture de la configuration pour ${vm.name} (${vm.vmid})...`);
-      console.log('URL configuration:', configUrl);
+      console.log(`🔍 Config envoyée: username=${config.username}, secret=${config.secret ? '***' : 'manquant'}, password=${config.password ? '***' : 'non fourni'}`);
       
-      const configWindow = window.open(configUrl, '_blank', 'width=1200,height=800');
-      
-      if (configWindow) {
-        success('Succès', `Configuration ouverte pour ${vm.name}`);
+      // Obtenir l'URL de la configuration avec authentification depuis le backend
+      // Si un password est fourni, l'utiliser pour obtenir le ticket (utile avec les tokens API)
+      const response = await apiPost<{ success: boolean; configUrl?: string; error?: string }>(
+        '/api/v1/proxmox/vm/config',
+        {
+          url: config.url,
+          username: config.username,
+          secret: config.secret,
+          password: config.password || undefined, // Envoyer le password si disponible
+          node: vm.node,
+          vmid: vm.vmid
+        }
+      );
+
+      if (response.success && response.configUrl) {
+        console.log('URL configuration:', response.configUrl);
+        const configWindow = window.open(response.configUrl, '_blank', 'width=1200,height=800');
+        
+        if (configWindow) {
+          success('Succès', `Configuration ouverte pour ${vm.name}`);
+        } else {
+          warning('Attention', 'La fenêtre de configuration a été bloquée par le navigateur. Veuillez autoriser les popups pour ce site.');
+        }
       } else {
-        warning('Attention', 'La fenêtre de configuration a été bloquée par le navigateur. Veuillez autoriser les popups pour ce site.');
+        throw new Error(response.error || 'Erreur lors de la génération de l\'URL de la configuration');
       }
     } catch (err: any) {
       console.error('Erreur configuration VM:', err);
@@ -656,7 +624,7 @@ export function VMs() {
     warning('Information', `L'édition de la VM ${vm.name} sera disponible dans une prochaine version`);
   };
 
-  const handleVMConsole = (vm: VM) => {
+  const handleVMConsole = async (vm: VM) => {
     try {
       const savedConfig = localStorage.getItem('proxmoxConfig');
       if (!savedConfig) {
@@ -665,29 +633,35 @@ export function VMs() {
       }
 
       const config = JSON.parse(savedConfig);
-      const base = config.url.replace(/\/$/, '');
       
-      // Vérifier si c'est une URL de développement fictive
-      const isDevUrl = base.includes('proxmox-dev.local') || base.includes('localhost') || base.includes('127.0.0.1');
-      
-      if (isDevUrl) {
-        warning(
-          'Configuration de développement',
-          'La console Proxmox ne peut pas être ouverte avec une configuration fictive. Veuillez configurer une connexion Proxmox réelle dans les Paramètres pour utiliser la console.'
-        );
-        return;
-      }
-      
-      const url = `${base}/?console=kvm&novnc=1&vmid=${vm.vmid}&node=${encodeURIComponent(vm.node)}`;
       console.log(`🖥️ Ouverture de la console pour ${vm.name} (${vm.vmid})...`);
-      console.log('URL console:', url);
+      console.log(`🔍 Config envoyée: username=${config.username}, secret=${config.secret ? '***' : 'manquant'}, password=${config.password ? '***' : 'non fourni'}`);
       
-      const consoleWindow = window.open(url, '_blank', 'width=1200,height=800');
-      
-      if (consoleWindow) {
-        success('Succès', `Console ouverte pour ${vm.name}`);
+      // Obtenir l'URL de la console avec authentification depuis le backend
+      // Si un password est fourni, l'utiliser pour obtenir le ticket (utile avec les tokens API)
+      const response = await apiPost<{ success: boolean; consoleUrl?: string; error?: string }>(
+        '/api/v1/proxmox/vm/console',
+        {
+          url: config.url,
+          username: config.username,
+          secret: config.secret,
+          password: config.password || undefined, // Envoyer le password si disponible
+          node: vm.node,
+          vmid: vm.vmid
+        }
+      );
+
+      if (response.success && response.consoleUrl) {
+        console.log('URL console:', response.consoleUrl);
+        const consoleWindow = window.open(response.consoleUrl, '_blank', 'width=1200,height=800');
+        
+        if (consoleWindow) {
+          success('Succès', `Console ouverte pour ${vm.name}`);
+        } else {
+          warning('Attention', 'La fenêtre de console a été bloquée par le navigateur. Veuillez autoriser les popups pour ce site.');
+        }
       } else {
-        warning('Attention', 'La fenêtre de console a été bloquée par le navigateur. Veuillez autoriser les popups pour ce site.');
+        throw new Error(response.error || 'Erreur lors de la génération de l\'URL de la console');
       }
     } catch (err: any) {
       console.error('Erreur console VM:', err);

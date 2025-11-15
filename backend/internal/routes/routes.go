@@ -79,6 +79,17 @@ func SetupRoutes(h *handlers.Handlers, hub *sse.Hub) *chi.Mux {
 		// Proxmox
 		r.Route("/proxmox", func(r chi.Router) {
 			r.Post("/fetch-data", h.FetchProxmoxData)
+			r.Post("/fetch-backups", h.FetchProxmoxBackups)
+			r.Post("/fetch-tasks", h.FetchProxmoxTasks)
+			r.Post("/fetch-docker", h.FetchProxmoxDocker)
+			r.Post("/fetch-databases", h.FetchProxmoxDatabases)
+			r.Post("/fetch-networks", h.FetchProxmoxNetworks)
+			r.Post("/test-password", h.TestProxmoxPassword)     // test du mot de passe
+			r.Post("/vm/{action}", h.VMAction)                  // start, stop, restart, pause
+			r.Post("/vm/console", h.VMConsole)                  // console VNC
+			r.Get("/vm/console-redirect", h.VMConsoleRedirect)  // redirection console VNC avec cookie
+			r.HandleFunc("/vm/console-proxy", h.VMConsoleProxy) // proxy console VNC avec cookie HTTP
+			r.Post("/vm/config", h.VMConfig)                    // configuration VM
 		})
 
 		// Prometheus
