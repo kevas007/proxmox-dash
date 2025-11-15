@@ -29,32 +29,151 @@ export function Overview() {
     severity: 'info' | 'warning' | 'critical';
   }>>([]);
 
-  // Charger les événements récents depuis localStorage
-  const loadRecentEvents = () => {
+  // Charger les événements récents depuis Proxmox et localStorage
+  const loadRecentEvents = async () => {
     try {
-      const savedEvents = localStorage.getItem('proxmoxEvents');
-      if (savedEvents) {
-        const events = JSON.parse(savedEvents);
-        // Convertir les timestamps en Date et trier par date décroissante
-        const parsedEvents = events
-          .map((e: any) => ({
-            ...e,
-            timestamp: new Date(e.timestamp)
-          }))
-          .sort((a: any, b: any) => b.timestamp - a.timestamp)
-          .slice(0, 10); // Garder seulement les 10 derniers
-        setRecentEvents(parsedEvents);
-      } else {
-        // Générer des événements basés sur les données actuelles
-        generateEventsFromData();
+      // Charger les tâches Proxmox pour créer des événements réels
+      const config = localStorage.getItem('proxmoxConfig');
+      let proxmoxEvents: any[] = [];
+      
+      if (config) {
+        try {
+          const proxmoxConfig = JSON.parse(config);
+          const tasksData = await apiPost<{
+            success: boolean;
+            message?: string;
+            tasks?: any[];
+          }>('/api/v1/proxmox/fetch-tasks', proxmoxConfig);
+          
+          if (tasksData.success && tasksData.tasks) {
+            // Convertir les tâches Proxmox en événements
+            proxmoxEvents = tasksData.tasks
+              .filter((task: any) => {
+                // Filtrer les tâches récentes (dernières 7 jours) et importantes
+                const taskDate = new Date(task.started_at || task.created_at);
+                if (isNaN(taskDate.getTime())) return false;
+                const daysAgo = (Date.now() - taskDate.getTime()) / (1000 * 60 * 60 * 24);
+                if (daysAgo > 7) return false;
+                
+                // Vérifier le type dans task.type ou task.id (Proxmox utilise parfois id pour le type)
+                const taskType = (task.type || task.id || '').toLowerCase();
+                const taskId = (task.id || task.name || '').toLowerCase();
+                
+                return (
+                  taskType.includes('vzdump') || taskId.includes('vzdump') || // Backups
+                  taskType.includes('qmstart') || taskId.includes('qmstart') || // VM start
+                  taskType.includes('qmstop') || taskId.includes('qmstop') || // VM stop
+                  taskType.includes('lxcstart') || taskId.includes('lxcstart') || // LXC start
+                  taskType.includes('lxcstop') || taskId.includes('lxcstop') || // LXC stop
+                  taskType.includes('migrate') || taskId.includes('migrate') || // Migrations
+                  task.status === 'failed' // Échecs
+                );
+              })
+              .map((task: any) => {
+                const taskDate = new Date(task.started_at || task.created_at);
+                if (isNaN(taskDate.getTime())) return null;
+                
+                // Vérifier le type dans task.type ou task.id
+                const taskType = (task.type || task.id || '').toLowerCase();
+                const taskId = (task.id || task.name || '').toLowerCase();
+                const taskName = task.name || task.id || 'inconnu';
+                
+                let type: 'vm_started' | 'vm_stopped' | 'lxc_started' | 'lxc_stopped' | 'node_online' | 'node_offline' | 'backup_completed' | 'backup_failed';
+                let title = '';
+                let message = '';
+                let severity: 'info' | 'warning' | 'critical' = 'info';
+                
+                // Déterminer le type d'événement selon le type de tâche
+                if (taskType.includes('qmstart') || taskId.includes('qmstart')) {
+                  type = 'vm_started';
+                  title = `VM ${taskName} démarrée`;
+                  message = `La VM ${taskName} a été démarrée sur ${task.node || 'N/A'}`;
+                  severity = 'info';
+                } else if (taskType.includes('qmstop') || taskId.includes('qmstop')) {
+                  type = 'vm_stopped';
+                  title = `VM ${taskName} arrêtée`;
+                  message = `La VM ${taskName} a été arrêtée sur ${task.node || 'N/A'}`;
+                  severity = 'warning';
+                } else if (taskType.includes('lxcstart') || taskId.includes('lxcstart')) {
+                  type = 'lxc_started';
+                  title = `LXC ${taskName} démarré`;
+                  message = `Le conteneur LXC ${taskName} a été démarré sur ${task.node || 'N/A'}`;
+                  severity = 'info';
+                } else if (taskType.includes('lxcstop') || taskId.includes('lxcstop')) {
+                  type = 'lxc_stopped';
+                  title = `LXC ${taskName} arrêté`;
+                  message = `Le conteneur LXC ${taskName} a été arrêté sur ${task.node || 'N/A'}`;
+                  severity = 'warning';
+                } else if (taskType.includes('vzdump') || taskId.includes('vzdump')) {
+                  if (task.status === 'completed') {
+                    type = 'backup_completed';
+                    title = `Backup ${taskName} terminé`;
+                    message = `Le backup ${taskName} s'est terminé avec succès sur ${task.node || 'N/A'}`;
+                    severity = 'info';
+                  } else if (task.status === 'failed') {
+                    type = 'backup_failed';
+                    title = `Backup ${taskName} échoué`;
+                    message = `Le backup ${taskName} a échoué sur ${task.node || 'N/A'}`;
+                    severity = 'critical';
+                  } else {
+                    // Tâche en cours ou autre statut
+                    type = 'backup_completed';
+                    title = `Backup ${taskName} en cours`;
+                    message = `Le backup ${taskName} est en cours sur ${task.node || 'N/A'}`;
+                    severity = 'info';
+                  }
+                } else {
+                  // Autres types de tâches - ignorer si pas important
+                  return null;
+                }
+                
+                return {
+                  id: `task-${task.id || task.name || Date.now()}`,
+                  type,
+                  title,
+                  message,
+                  timestamp: taskDate,
+                  severity
+                };
+              })
+              .filter((event: any) => event !== null); // Filtrer les null
+          }
+        } catch (err) {
+          console.warn('⚠️ Erreur lors du chargement des tâches Proxmox (non bloquant):', err);
+        }
       }
+      
+      // Combiner avec les événements générés depuis les données (changements de statut)
+      const dataEvents = generateEventsFromData();
+      
+      // Fusionner et trier par date
+      const allEvents = [...proxmoxEvents, ...dataEvents]
+        .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+        .slice(0, 20); // Garder les 20 plus récents
+      
+      // Supprimer les doublons (même ID)
+      const uniqueEvents = Array.from(
+        new Map(allEvents.map(event => [event.id, event])).values()
+      ).slice(0, 10); // Garder les 10 plus récents après déduplication
+      
+      setRecentEvents(uniqueEvents);
+      localStorage.setItem('proxmoxEvents', JSON.stringify(uniqueEvents));
     } catch (err) {
       console.error('Erreur lors du chargement des événements:', err);
+      // Fallback : générer depuis les données
+      generateEventsFromData();
     }
   };
 
-  // Générer des événements à partir des données Proxmox
-  const generateEventsFromData = () => {
+  // Générer des événements à partir des données Proxmox (changements de statut)
+  const generateEventsFromData = (): Array<{
+    id: string;
+    type: 'vm_started' | 'vm_stopped' | 'lxc_started' | 'lxc_stopped' | 'node_online' | 'node_offline' | 'backup_completed' | 'backup_failed';
+    title: string;
+    message: string;
+    timestamp: Date;
+    severity: 'info' | 'warning' | 'critical';
+  }> => {
     const events: Array<{
       id: string;
       type: 'vm_started' | 'vm_stopped' | 'lxc_started' | 'lxc_stopped' | 'node_online' | 'node_offline' | 'backup_completed' | 'backup_failed';
@@ -135,15 +254,11 @@ export function Overview() {
         });
       }
 
-      // Trier par date décroissante et garder les 10 derniers
-      const sortedEvents = events
-        .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-        .slice(0, 10);
-
-      setRecentEvents(sortedEvents);
-      localStorage.setItem('proxmoxEvents', JSON.stringify(sortedEvents));
+      // Retourner les événements (seront triés dans loadRecentEvents)
+      return events;
     } catch (err) {
       console.error('Erreur lors de la génération des événements:', err);
+      return [];
     }
   };
 
@@ -171,10 +286,24 @@ export function Overview() {
       const savedNetworks = localStorage.getItem('proxmoxNetworks');
       const networks = savedNetworks ? JSON.parse(savedNetworks) : [];
 
+      // Charger les conteneurs Docker depuis localStorage
+      // Les données Docker sont chargées via fetch-docker et sauvegardées dans localStorage
+      const savedDocker = localStorage.getItem('proxmoxDocker');
+      let docker: any[] = [];
+      
+      if (savedDocker) {
+        try {
+          docker = JSON.parse(savedDocker);
+        } catch (err) {
+          console.error('Erreur parsing Docker data:', err);
+        }
+      }
+
       console.log('📊 Données Overview chargées:', { 
         nodes: { count: nodes.length, sample: nodes[0] },
         vms: { count: vms.length, sample: vms[0], allStatuses: [...new Set(vms.map((v: any) => v.status))] },
         lxc: { count: lxc.length, sample: lxc[0], allStatuses: [...new Set(lxc.map((c: any) => c.status))] },
+        docker: { count: docker.length, sample: docker[0] },
         storages: { count: storages.length, sample: storages[0] },
         networks: { count: networks.length, sample: networks[0] }
       });
@@ -234,14 +363,23 @@ export function Overview() {
           
           storageMap.set(storageId, true);
           
-          // Les données sont en GB depuis le backend
+          // Les données sont déjà en GB depuis le backend (conversion faite dans handlers.go)
           const totalSpace = parseFloat(storage.total_space) || 0;
           const usedSpace = parseFloat(storage.used_space) || 0;
           
-          // S'assurer que les valeurs sont valides
-          if (totalSpace > 0 && usedSpace >= 0) {
+          // S'assurer que les valeurs sont valides et cohérentes
+          if (totalSpace > 0 && usedSpace >= 0 && usedSpace <= totalSpace) {
             totalStorageTotal += totalSpace;
             totalStorageUsed += usedSpace;
+          } else {
+            console.warn('⚠️ Données de stockage invalides pour', storageId, { 
+              totalSpace, 
+              usedSpace, 
+              raw: { 
+                total_space: storage.total_space, 
+                used_space: storage.used_space 
+              } 
+            });
           }
         });
         
@@ -325,7 +463,17 @@ export function Overview() {
             return status !== 'running' && status !== '';
           }).length,
         },
-        docker: { total: 0, running: 0, stopped: 0 }, // Pas de données Docker pour l'instant
+        docker: {
+          total: docker.length,
+          running: docker.filter((d: any) => {
+            const status = String(d.status || '').toLowerCase();
+            return status === 'running';
+          }).length,
+          stopped: docker.filter((d: any) => {
+            const status = String(d.status || '').toLowerCase();
+            return status !== 'running' && status !== '';
+          }).length,
+        },
         storage: {
           used: storageUsagePercent, // Pourcentage pour l'affichage
           total: totalStorageTotal, // Total en GB pour le calcul
@@ -445,8 +593,25 @@ export function Overview() {
           networks: networksData.length
         });
         
-        // Recharger les statistiques après sauvegarde
+        // Charger aussi les données Docker
+        try {
+          const dockerData = await apiPost<{
+            success: boolean;
+            message?: string;
+            containers?: any[];
+          }>('/api/v1/proxmox/fetch-docker', proxmoxConfig);
+          
+          if (dockerData.success && dockerData.containers) {
+            localStorage.setItem('proxmoxDocker', JSON.stringify(dockerData.containers));
+            console.log('🐳 Conteneurs Docker chargés:', dockerData.containers.length);
+          }
+        } catch (dockerErr) {
+          console.warn('⚠️ Erreur lors du chargement Docker (non bloquant):', dockerErr);
+        }
+        
+        // Recharger les statistiques et événements après sauvegarde
         loadStats();
+        await loadRecentEvents();
       } else {
         // Afficher le message d'erreur du backend
         const errorMsg = data.message || 'Erreur lors du rafraîchissement des données Proxmox';
@@ -463,33 +628,57 @@ export function Overview() {
     // Charger automatiquement les données Proxmox si la configuration existe
     const loadDataOnMount = async () => {
       await storage.ensureProxmoxDataLoaded();
-      // Charger les statistiques après avoir chargé les données
+      
+      // Charger aussi les données Docker si pas déjà chargées
+      const savedDocker = localStorage.getItem('proxmoxDocker');
+      if (!savedDocker) {
+        try {
+          const config = localStorage.getItem('proxmoxConfig');
+          if (config) {
+            const proxmoxConfig = JSON.parse(config);
+            const dockerData = await apiPost<{
+              success: boolean;
+              message?: string;
+              containers?: any[];
+            }>('/api/v1/proxmox/fetch-docker', proxmoxConfig);
+            
+            if (dockerData.success && dockerData.containers) {
+              localStorage.setItem('proxmoxDocker', JSON.stringify(dockerData.containers));
+              console.log('🐳 Conteneurs Docker chargés au démarrage:', dockerData.containers.length);
+            }
+          }
+        } catch (dockerErr) {
+          console.warn('⚠️ Erreur lors du chargement Docker au démarrage (non bloquant):', dockerErr);
+        }
+      }
+      
+      // Charger les statistiques et événements après avoir chargé les données
       loadStats();
-      loadRecentEvents();
+      await loadRecentEvents();
     };
     
     loadDataOnMount();
   }, []);
 
-  // Rafraîchissement automatique toutes les 10 secondes
+  // Rafraîchissement automatique toutes les 30 secondes
   useEffect(() => {
     const interval = setInterval(async () => {
       await storage.ensureProxmoxDataLoaded();
       loadStats();
-      loadRecentEvents();
-    }, 10000); // 10 secondes
+      await loadRecentEvents();
+    }, 30000); // 30 secondes
 
     return () => clearInterval(interval);
   }, []);
 
   // Écouter les mises à jour des données Proxmox
   useEffect(() => {
-    const handleProxmoxDataUpdate = (event: any) => {
+    const handleProxmoxDataUpdate = async (event: any) => {
       console.log('🔄 Mise à jour des données Proxmox détectée pour Overview', event.detail);
-      // Recharger les statistiques immédiatement
-      setTimeout(() => {
+      // Recharger les statistiques et événements immédiatement
+      setTimeout(async () => {
         loadStats();
-        generateEventsFromData();
+        await loadRecentEvents();
       }, 100); // Petit délai pour s'assurer que localStorage est à jour
     };
 

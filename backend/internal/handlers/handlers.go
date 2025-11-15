@@ -217,29 +217,77 @@ func (h *Handlers) GetHealth(w http.ResponseWriter, r *http.Request) {
 
 // GetHealthHTTP vérifie la santé d'une URL HTTP
 func (h *Handlers) GetHealthHTTP(w http.ResponseWriter, r *http.Request) {
-	url := r.URL.Query().Get("url")
-	if url == "" {
+	urlStr := r.URL.Query().Get("url")
+	if urlStr == "" {
 		http.Error(w, "URL parameter is required", http.StatusBadRequest)
 		return
 	}
 
+	// Parser l'URL pour extraire le host
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		result := map[string]interface{}{
+			"url":       urlStr,
+			"status":    "offline",
+			"latency":   0,
+			"timestamp": time.Now().Unix(),
+			"error":     fmt.Sprintf("Invalid URL: %v", err),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+		return
+	}
+
+	host := parsedURL.Hostname()
+
+	// Ne pas essayer de résoudre les noms de domaine .local via DNS
+	// Ils doivent être remplacés par des IPs côté frontend avant d'arriver ici
+	// Si un .local arrive ici, c'est une erreur de configuration
+	if strings.HasSuffix(host, ".local") {
+		result := map[string]interface{}{
+			"url":        urlStr,
+			"status":     "offline",
+			"latency":    0,
+			"timestamp":  time.Now().Unix(),
+			"error":      fmt.Sprintf("DNS .local non supporté: %s. Utilisez une adresse IP au lieu d'un nom de domaine .local.", host),
+			"last_check": time.Now().Format(time.RFC3339),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+		return
+	}
+
+	// Configurer un client HTTP avec timeout
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
 	// Faire une vraie vérification HTTP
 	startTime := time.Now()
-	resp, err := http.Get(url)
+	resp, err := client.Get(urlStr)
 	latency := time.Since(startTime).Milliseconds()
 
 	var status string
 	var statusCode *int
+	var errorMsg string
 
 	if err != nil {
 		status = "offline"
-		errorMsg := err.Error()
+		errorMsg = err.Error()
+		// Si c'est une erreur DNS, indiquer clairement
+		if strings.Contains(errorMsg, "no such host") || strings.Contains(errorMsg, "lookup") {
+			errorMsg = fmt.Sprintf("DNS resolution failed: %s. Consider using IP address instead of hostname.", host)
+		}
 		result := map[string]interface{}{
-			"url":       url,
-			"status":    status,
-			"latency":   latency,
-			"timestamp": time.Now().Unix(),
-			"error":     errorMsg,
+			"url":        urlStr,
+			"status":     status,
+			"latency":    latency,
+			"timestamp":  time.Now().Unix(),
+			"error":      errorMsg,
+			"last_check": time.Now().Format(time.RFC3339),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(result)
@@ -254,14 +302,19 @@ func (h *Handlers) GetHealthHTTP(w http.ResponseWriter, r *http.Request) {
 		status = "online"
 	} else {
 		status = "offline"
+		errorMsg = fmt.Sprintf("HTTP %d", resp.StatusCode)
 	}
 
 	result := map[string]interface{}{
-		"url":         url,
+		"url":         urlStr,
 		"status":      status,
 		"latency":     latency,
 		"status_code": statusCode,
 		"timestamp":   time.Now().Unix(),
+		"last_check":  time.Now().Format(time.RFC3339),
+	}
+	if errorMsg != "" {
+		result["error"] = errorMsg
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1106,6 +1159,54 @@ func (h *Handlers) fetchProxmoxVMs(url, token string) ([]map[string]interface{},
 						fmt.Printf("⚠️ Failed to fetch metrics for VM %s (ID: %d): %v\n", name, int(vmid), err)
 					}
 				}
+
+				// Essayer de récupérer l'IP via l'agent QEMU (si disponible)
+				agentURL := fmt.Sprintf("%s/api2/json/nodes/%s/qemu/%d/agent/network-get-interfaces", url, nodeName, int(vmid))
+				agentReq, err := http.NewRequest("GET", agentURL, nil)
+				if err == nil {
+					agentReq.Header.Set("Authorization", token)
+					agentReq.Header.Set("Content-Type", "application/json")
+
+					agentResp, err := client.Do(agentReq)
+					if err == nil && agentResp.StatusCode == 200 {
+						var agentResult struct {
+							Data []map[string]interface{} `json:"data"`
+						}
+						if err := json.NewDecoder(agentResp.Body).Decode(&agentResult); err == nil {
+							agentResp.Body.Close()
+							// Chercher la première interface avec une IP (ignorer loopback)
+							for _, iface := range agentResult.Data {
+								if name, _ := iface["name"].(string); name != "lo" {
+									if ipAddrs, ok := iface["ip-addresses"].([]interface{}); ok {
+										for _, ipAddr := range ipAddrs {
+											if ipMap, ok := ipAddr.(map[string]interface{}); ok {
+												if ipType, _ := ipMap["ip-address-type"].(string); ipType == "ipv4" {
+													if ip, ok := ipMap["ip-address"].(string); ok && ip != "" {
+														vm["ip_address"] = ip
+														fmt.Printf("🌐 VM %s IP: %s\n", name, ip)
+														break
+													}
+												}
+											}
+										}
+									}
+									if vm["ip_address"] != nil {
+										break
+									}
+								}
+							}
+						} else {
+							if agentResp != nil {
+								agentResp.Body.Close()
+							}
+						}
+					} else {
+						if agentResp != nil {
+							agentResp.Body.Close()
+						}
+						// L'agent n'est pas disponible, c'est normal pour certaines VMs
+					}
+				}
 			}
 
 			allVMs = append(allVMs, vm)
@@ -1227,8 +1328,157 @@ func (h *Handlers) fetchProxmoxLXC(url, token string) ([]map[string]interface{},
 				container["uptime"] = int64(uptime)
 			}
 
+			// Essayer de récupérer l'IP depuis la configuration réseau du LXC
+			if status == "running" {
+				// Méthode 1: Essayer via l'agent d'abord (plus fiable pour DHCP)
+				agentURL := fmt.Sprintf("%s/api2/json/nodes/%s/lxc/%d/agent/network-get-interfaces", url, nodeName, int(vmid))
+				agentReq, err := http.NewRequest("GET", agentURL, nil)
+				if err == nil {
+					agentReq.Header.Set("Authorization", token)
+					agentReq.Header.Set("Content-Type", "application/json")
+
+					agentResp, err := client.Do(agentReq)
+					if err == nil && agentResp.StatusCode == 200 {
+						var agentResult struct {
+							Data []map[string]interface{} `json:"data"`
+						}
+						if err := json.NewDecoder(agentResp.Body).Decode(&agentResult); err == nil {
+							agentResp.Body.Close()
+							// Chercher la première interface avec une IP IPv4 (ignorer loopback)
+							for _, iface := range agentResult.Data {
+								if ifaceName, _ := iface["name"].(string); ifaceName != "lo" {
+									if ipAddrs, ok := iface["ip-addresses"].([]interface{}); ok {
+										for _, ipAddr := range ipAddrs {
+											if ipMap, ok := ipAddr.(map[string]interface{}); ok {
+												if ipType, _ := ipMap["ip-address-type"].(string); ipType == "ipv4" {
+													if ip, ok := ipMap["ip-address"].(string); ok && ip != "" {
+														container["ip_address"] = ip
+														fmt.Printf("🌐 LXC %s IP (via agent): %s\n", name, ip)
+														break
+													}
+												}
+											}
+										}
+									}
+									if container["ip_address"] != nil {
+										break
+									}
+								}
+							}
+						} else {
+							if agentResp != nil {
+								agentResp.Body.Close()
+							}
+						}
+					} else {
+						if agentResp != nil {
+							agentResp.Body.Close()
+						}
+						// L'agent n'est pas disponible, essayer la config
+					}
+				}
+
+				// Méthode 2: Si pas d'IP via l'agent, essayer la configuration
+				if container["ip_address"] == nil {
+					configURL := fmt.Sprintf("%s/api2/json/nodes/%s/lxc/%d/config", url, nodeName, int(vmid))
+					configReq, err := http.NewRequest("GET", configURL, nil)
+					if err == nil {
+						configReq.Header.Set("Authorization", token)
+						configReq.Header.Set("Content-Type", "application/json")
+
+						configResp, err := client.Do(configReq)
+						if err == nil && configResp.StatusCode == 200 {
+							var configResult struct {
+								Data map[string]interface{} `json:"data"`
+							}
+							if err := json.NewDecoder(configResp.Body).Decode(&configResult); err == nil {
+								configResp.Body.Close()
+								// Chercher net0, net1, etc. qui contiennent les IPs
+								for key, value := range configResult.Data {
+									if strings.HasPrefix(key, "net") {
+										if netStr, ok := value.(string); ok {
+											// Format: name=eth0,bridge=vmbr0,ip=dhcp ou ip=192.168.1.100/24
+											parts := strings.Split(netStr, ",")
+											for _, part := range parts {
+												if strings.HasPrefix(part, "ip=") {
+													ipPart := strings.TrimPrefix(part, "ip=")
+													// Enlever le masque de sous-réseau si présent
+													if strings.Contains(ipPart, "/") {
+														ipPart = strings.Split(ipPart, "/")[0]
+													}
+													// Ignorer "dhcp"
+													if ipPart != "dhcp" && ipPart != "" {
+														container["ip_address"] = ipPart
+														fmt.Printf("🌐 LXC %s IP (via config): %s\n", name, ipPart)
+														break
+													}
+												}
+											}
+										}
+										if container["ip_address"] != nil {
+											break
+										}
+									}
+								}
+							} else {
+								if configResp != nil {
+									configResp.Body.Close()
+								}
+							}
+						} else {
+							if configResp != nil {
+								configResp.Body.Close()
+							}
+						}
+					}
+				}
+
+				// Méthode 3: Essayer via les statistiques en temps réel (dernier recours)
+				if container["ip_address"] == nil {
+					statusURL := fmt.Sprintf("%s/api2/json/nodes/%s/lxc/%d/status/current", url, nodeName, int(vmid))
+					statusReq, err := http.NewRequest("GET", statusURL, nil)
+					if err == nil {
+						statusReq.Header.Set("Authorization", token)
+						statusReq.Header.Set("Content-Type", "application/json")
+
+						statusResp, err := client.Do(statusReq)
+						if err == nil && statusResp.StatusCode == 200 {
+							var statusResult struct {
+								Data map[string]interface{} `json:"data"`
+							}
+							if err := json.NewDecoder(statusResp.Body).Decode(&statusResult); err == nil {
+								statusResp.Body.Close()
+								// Chercher des informations réseau dans les statistiques
+								if netIn, ok := statusResult.Data["netin"].(float64); ok && netIn > 0 {
+									// Si le conteneur a du trafic réseau, il est probablement connecté
+									// Mais on ne peut pas récupérer l'IP directement depuis ici
+									fmt.Printf("⚠️ LXC %s a du trafic réseau mais IP non récupérable via status\n", name)
+								}
+							} else {
+								if statusResp != nil {
+									statusResp.Body.Close()
+								}
+							}
+						} else {
+							if statusResp != nil {
+								statusResp.Body.Close()
+							}
+						}
+					}
+				}
+
+				// Log si aucune IP n'a été trouvée
+				if container["ip_address"] == nil {
+					fmt.Printf("⚠️ LXC %s (ID: %d) - Aucune IP trouvée (Agent peut-être indisponible ou DHCP)\n", name, int(vmid))
+				}
+			}
+
 			allLXC = append(allLXC, container)
-			fmt.Printf("🐳 LXC found: %s (ID: %d, Node: %s, Status: %s)\n", name, int(vmid), nodeName, status)
+			fmt.Printf("🐳 LXC found: %s (ID: %d, Node: %s, Status: %s", name, int(vmid), nodeName, status)
+			if container["ip_address"] != nil {
+				fmt.Printf(", IP: %v", container["ip_address"])
+			}
+			fmt.Printf(")\n")
 		}
 	}
 
@@ -1850,7 +2100,20 @@ func (h *Handlers) fetchProxmoxNetworks(url, token, nodeName string) ([]map[stri
 		for _, iface := range networkResult.Data {
 			ifaceName, _ := iface["iface"].(string)
 			ifaceType, _ := iface["type"].(string)
-			active, _ := iface["active"].(float64)
+
+			// Gérer le champ active qui peut être float64, int, ou bool
+			var active bool
+			if activeFloat, ok := iface["active"].(float64); ok {
+				active = activeFloat == 1
+			} else if activeInt, ok := iface["active"].(int); ok {
+				active = activeInt == 1
+			} else if activeBool, ok := iface["active"].(bool); ok {
+				active = activeBool
+			} else {
+				// Par défaut, considérer comme actif si l'interface a une adresse IP
+				address, _ := iface["address"].(string)
+				active = address != ""
+			}
 
 			// Extraire les informations
 			address, _ := iface["address"].(string)
@@ -1859,7 +2122,7 @@ func (h *Handlers) fetchProxmoxNetworks(url, token, nodeName string) ([]map[stri
 
 			// Déterminer le statut
 			status := "inactive"
-			if active == 1 {
+			if active {
 				status = "active"
 			}
 
@@ -1872,9 +2135,12 @@ func (h *Handlers) fetchProxmoxNetworks(url, token, nodeName string) ([]map[stri
 				"ip_address":  address,
 				"netmask":     netmask,
 				"gateway":     gateway,
-				"active":      active == 1,
+				"active":      active,
 				"last_update": time.Now().Format(time.RFC3339),
 			}
+
+			fmt.Printf("🌐 Interface %s (node: %s, type: %s, status: %s, active: %v)\n",
+				ifaceName, currentNodeName, ifaceType, status, active)
 
 			allNetworks = append(allNetworks, networkData)
 		}

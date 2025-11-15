@@ -211,12 +211,12 @@ export function LXC() {
     loadDataOnMount();
   }, []);
 
-  // Rafraîchissement automatique toutes les 10 secondes
+  // Rafraîchissement automatique toutes les 30 secondes
   useEffect(() => {
     const interval = setInterval(async () => {
       await storage.ensureProxmoxDataLoaded();
       loadContainers();
-    }, 10000); // 10 secondes
+    }, 30000); // 30 secondes
 
     return () => clearInterval(interval);
   }, []);

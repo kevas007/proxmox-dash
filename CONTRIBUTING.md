@@ -35,6 +35,12 @@ Si vous trouvez un bug, veuillez :
 
 #### Processus de Contribution
 
+⚠️ **IMPORTANT : Workflow de Branches**
+
+- **Branche `main`** : Réservée uniquement à **kevas007**. Aucun push direct n'est autorisé pour les autres contributeurs.
+- **Branche `dev`** : Branche de développement principale pour toutes les contributions.
+- **Branches feature** : Créées depuis `dev` pour chaque nouvelle fonctionnalité.
+
 1. **Fork** le repository
 2. **Clone** votre fork :
    ```bash
@@ -42,7 +48,19 @@ Si vous trouvez un bug, veuillez :
    cd proxmox-dash
    ```
 
-3. **Créer une branche** :
+3. **Ajouter le remote upstream** :
+   ```bash
+   git remote add upstream https://github.com/kevas007/proxmox-dash.git
+   ```
+
+4. **Synchroniser avec upstream** :
+   ```bash
+   git fetch upstream
+   git checkout dev
+   git pull upstream dev
+   ```
+
+5. **Créer une branche feature depuis `dev`** :
    ```bash
    git checkout -b feature/nom-de-votre-fonctionnalite
    ```
@@ -58,25 +76,47 @@ Si vous trouvez un bug, veuillez :
    npm install
    ```
 
-5. **Démarrer l'environnement** :
+7. **Démarrer l'environnement** :
    ```bash
    docker compose up -d
    ```
 
-6. **Développer** votre fonctionnalité
-7. **Tester** vos modifications
-8. **Commit** vos changements :
+8. **Développer** votre fonctionnalité
+9. **Tester** vos modifications
+10. **Commit** vos changements :
    ```bash
    git add .
    git commit -m "feat: ajouter nouvelle fonctionnalité"
    ```
 
-9. **Push** vers votre fork :
+11. **Push** vers votre fork sur la branche `dev` :
    ```bash
    git push origin feature/nom-de-votre-fonctionnalite
    ```
 
-10. **Créer une Pull Request**
+12. **Créer une Pull Request** vers la branche `dev` (⚠️ **JAMAIS vers `main`**)
+    - Base: `dev`
+    - Compare: `feature/nom-de-votre-fonctionnalite`
+    - Seul **kevas007** peut merger dans `main` après validation
+
+### 🔒 Protection de la Branche Main
+
+La branche `main` est protégée et réservée uniquement à **kevas007** pour :
+- Garantir la stabilité du code en production
+- Maintenir la qualité du code
+- Éviter les push directs non validés
+
+**Règles** :
+- ✅ Tous les contributeurs doivent pousser vers `dev`
+- ✅ Les Pull Requests doivent cibler `dev`
+- ✅ Seul **kevas007** peut merger `dev` → `main`
+- ❌ Aucun push direct sur `main` autorisé pour les autres utilisateurs
+
+**Scripts d'aide** :
+- Linux/Mac : `./scripts/setup-dev-branch.sh`
+- Windows : `.\scripts\setup-dev-branch.ps1`
+
+Pour plus de détails sur la configuration, consultez [docs/BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md)
 
 ## 📋 Standards de Code
 

@@ -129,6 +129,10 @@ export function Docker() {
         setContainers(convertedContainers);
         // Les images Docker ne sont pas disponibles depuis Proxmox
         setImages([]);
+        
+        // Sauvegarder dans localStorage pour Overview
+        localStorage.setItem('proxmoxDocker', JSON.stringify(data.containers || []));
+        
         console.log('✅ Conteneurs Docker chargés depuis Proxmox:', convertedContainers.length);
       } else {
         console.warn('⚠️ Aucune donnée Docker trouvée ou erreur:', data.message);
@@ -157,12 +161,12 @@ export function Docker() {
     loadDataOnMount();
   }, []);
 
-  // Rafraîchissement automatique toutes les 10 secondes
+  // Rafraîchissement automatique toutes les 30 secondes
   useEffect(() => {
     const interval = setInterval(async () => {
       await storage.ensureProxmoxDataLoaded();
       await loadDockerData();
-    }, 10000); // 10 secondes
+    }, 30000); // 30 secondes
 
     return () => clearInterval(interval);
   }, []);

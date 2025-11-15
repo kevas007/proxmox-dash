@@ -400,12 +400,12 @@ func seedNotificationSubscriptions(db *sql.DB) error {
 		},
 		{
 			channel:  "webhook",
-			endpoint: "https://example.com/webhook/slack/placeholder",
+			endpoint: "https://example.com/webhook/placeholder-slack",
 			enabled:  false,
 		},
 		{
 			channel:  "webhook",
-			endpoint: "https://example.com/webhook/discord/placeholder",
+			endpoint: "https://example.com/webhook/placeholder-discord",
 			enabled:  false,
 		},
 	}

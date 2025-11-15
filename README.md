@@ -50,6 +50,11 @@ git clone https://github.com/kevas007/proxmox-dash.git
 cd proxmox-dash
 ```
 
+**Note pour les contributeurs** : Si vous souhaitez contribuer au projet, veuillez :
+- Utiliser la branche `dev` pour vos contributions
+- La branche `main` est réservée à kevas007 uniquement
+- Consultez [CONTRIBUTING.md](CONTRIBUTING.md) pour plus de détails
+
 2. **Créer le répertoire de données**
 ```bash
 mkdir -p data

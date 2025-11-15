@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Server,
   Monitor,
@@ -15,10 +15,7 @@ import {
   Menu,
   X,
   Activity,
-  Lock,
-  LogOut,
   Users,
-  User,
   Shield,
   BarChart3,
   Grid3x3,
@@ -28,7 +25,6 @@ import { cn } from '@/utils/cn';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
 import { useAuth, hasRole } from '@/utils/auth';
-import { LoginModal } from './LoginModal';
 import { useTranslation } from '@/hooks/useTranslation';
 import LanguageSelector from './LanguageSelector';
 
@@ -70,38 +66,9 @@ export function Layout({
   onAcknowledgeAll
 }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [showLoginModal, setShowLoginModal] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [selectedCluster, setSelectedCluster] = useState('Cluster Principal');
-  const { isAuthenticated, user, logout } = useAuth();
+  const { user } = useAuth();
   const { t } = useTranslation();
-
-  // Charger les clusters depuis localStorage (Proxmox nodes)
-  const [clusters, setClusters] = useState<string[]>(['Cluster Principal']);
-  
-  useEffect(() => {
-    const loadClusters = () => {
-      try {
-        const nodesData = localStorage.getItem('proxmoxNodes');
-        if (nodesData) {
-          const nodes = JSON.parse(nodesData);
-          const uniqueClusters = Array.from(new Set(nodes.map((node: any) => node.cluster || 'Cluster Principal')));
-          if (uniqueClusters.length > 0) {
-            setClusters(uniqueClusters as string[]);
-          }
-        }
-      } catch (e) {
-        console.error('Erreur lors du chargement des clusters:', e);
-      }
-    };
-
-    loadClusters();
-    
-    // Écouter les mises à jour des nœuds
-    const handleNodesUpdate = () => loadClusters();
-    window.addEventListener('proxmoxDataUpdated', handleNodesUpdate);
-    return () => window.removeEventListener('proxmoxDataUpdated', handleNodesUpdate);
-  }, []);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
@@ -132,19 +99,6 @@ export function Layout({
 
           {/* Actions */}
           <div className="flex items-center space-x-2 relative">
-            {/* Sélecteur de cluster */}
-            <select 
-              value={selectedCluster}
-              onChange={(e) => setSelectedCluster(e.target.value)}
-              className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg bg-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100 cursor-pointer"
-            >
-              {clusters.map((cluster) => (
-                <option key={cluster} value={cluster}>
-                  {cluster}
-                </option>
-              ))}
-            </select>
-
             {/* Notifications */}
             <div className="relative">
               <button 
@@ -157,7 +111,7 @@ export function Layout({
                   <Badge
                     variant="error"
                     size="sm"
-                    className="absolute -top-1 -right-1 min-w-[1.25rem] h-5 flex items-center justify-center text-xs"
+                    className="absolute -top-1 -right-1 min-w-[1.25rem] h-5 flex items-center justify-center text-xs font-semibold z-10"
                   >
                     {alertCount > 99 ? '99+' : alertCount}
                   </Badge>
@@ -241,43 +195,6 @@ export function Layout({
                 <Moon className="h-5 w-5 text-slate-600 dark:text-slate-400" />
               )}
             </button>
-
-            {/* Authentification */}
-            {isAuthenticated && user ? (
-              <div className="flex items-center space-x-2">
-                <div className="flex items-center space-x-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg">
-                  <User className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                  <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                    {user.username}
-                  </span>
-                  <Badge
-                    variant={user.role === 'admin' ? 'error' : user.role === 'user' ? 'info' : 'default'}
-                    size="sm"
-                  >
-                    {user.role}
-                  </Badge>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={logout}
-                  className="p-2"
-                  title="Se déconnecter"
-                >
-                  <LogOut className="h-5 w-5 text-slate-600 dark:text-slate-400" />
-                </Button>
-              </div>
-            ) : (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowLoginModal(true)}
-                className="p-2"
-                title="Se connecter"
-              >
-                <Lock className="h-5 w-5 text-slate-600 dark:text-slate-400" />
-              </Button>
-            )}
           </div>
         </div>
       </header>
@@ -289,19 +206,6 @@ export function Layout({
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}>
           <div className="flex flex-col h-full pt-16 lg:pt-0">
-            {/* Indicateur d'authentification */}
-            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
-              <div className="flex items-center space-x-2">
-                <div className={cn(
-                  'w-2 h-2 rounded-full',
-                  isAuthenticated ? 'bg-green-500' : 'bg-slate-400'
-                )} />
-                <span className="text-xs text-slate-600 dark:text-slate-400">
-                  {isAuthenticated ? t('common.authenticated') : t('common.read_only')}
-                </span>
-              </div>
-            </div>
-
             <nav className="flex-1 px-4 py-6 space-y-2">
               {sections.map((section) => {
                 const Icon = section.icon;
@@ -353,12 +257,6 @@ export function Layout({
           </div>
         </main>
       </div>
-
-      {/* Modal de connexion */}
-      <LoginModal
-        isOpen={showLoginModal}
-        onClose={() => setShowLoginModal(false)}
-      />
     </div>
   );
 }

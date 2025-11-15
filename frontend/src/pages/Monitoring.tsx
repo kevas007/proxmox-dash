@@ -74,8 +74,10 @@ export function Monitoring() {
 
   const runQuery = async (query: string): Promise<number | null> => {
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080';
-      const url = `${apiUrl}/api/v1/prometheus/query?base_url=${encodeURIComponent(baseUrl)}&query=${encodeURIComponent(query)}`;
+      // Utiliser des URLs relatives pour compatibilité Docker (nginx proxy /api vers backend)
+      // En développement, Vite proxy aussi /api vers localhost:8080
+      const apiBaseUrl = import.meta.env.VITE_API_URL || '';
+      const url = `${apiBaseUrl}/api/v1/prometheus/query?base_url=${encodeURIComponent(baseUrl)}&query=${encodeURIComponent(query)}`;
       
       const resp = await fetch(url);
       if (!resp.ok) {

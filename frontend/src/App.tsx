@@ -88,18 +88,26 @@ function App() {
     },
   });
 
-  // Charger les alertes au démarrage
+  // Charger les alertes au démarrage et périodiquement
   useEffect(() => {
     const loadAlerts = async () => {
       try {
         const alertsData = await apiGet<Alert[]>('/api/v1/alerts?limit=20');
-        setAlerts(alertsData);
+        setAlerts(alertsData || []);
       } catch (err) {
         console.error('Failed to load alerts:', err);
+        // En cas d'erreur, initialiser avec un tableau vide
+        setAlerts([]);
       }
     };
 
+    // Charger immédiatement
     loadAlerts();
+
+    // Rafraîchir toutes les 30 secondes (pour les utilisateurs non authentifiés ou si SSE échoue)
+    const interval = setInterval(loadAlerts, 30000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   // Écouter les événements de navigation depuis Overview
@@ -138,6 +146,14 @@ function App() {
         // Mettre à jour l'état local
         setAlerts(prev => (prev || []).map(alert => ({ ...alert, acknowledged: true })));
         info('Notifications', 'Toutes les notifications ont été marquées comme lues');
+        
+        // Recharger les alertes pour s'assurer que le compteur est à jour
+        try {
+          const alertsData = await apiGet<Alert[]>('/api/v1/alerts?limit=20');
+          setAlerts(alertsData || []);
+        } catch (reloadErr) {
+          console.error('Failed to reload alerts after acknowledge:', reloadErr);
+        }
       } else {
         throw new Error('Réponse invalide du serveur');
       }
